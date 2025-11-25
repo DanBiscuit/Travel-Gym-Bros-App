@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "gymfinder",
-    "slug": "gymfinder",
+    "name": "Travel Gym Bros",
+    "slug": "travel-gym-bros",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "gymfinder",
+    "scheme": "travelgymbros",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
