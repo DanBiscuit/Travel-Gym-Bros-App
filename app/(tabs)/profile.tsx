@@ -1,8 +1,7 @@
-// app/(tabs)/profile.tsx
 // @ts-nocheck
 
 import * as ImagePicker from "expo-image-picker";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -30,7 +29,6 @@ const FOCUS_OPTIONS = [
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams();
 
   // AUTH
   const [user, setUser] = useState(null);
@@ -41,8 +39,9 @@ export default function ProfileScreen() {
   const [password, setPassword] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
 
-  // PROFILE
+  // PROFILE FIELDS
   const [username, setUsername] = useState("");
+  const [role, setRole] = useState("user");
   const [trainingFocuses, setTrainingFocuses] = useState<string[]>([]);
   const [squatPb, setSquatPb] = useState("");
   const [benchPb, setBenchPb] = useState("");
@@ -55,6 +54,19 @@ export default function ProfileScreen() {
   const [homeGymId, setHomeGymId] = useState<string | null>(null);
   const [homeGymName, setHomeGymName] = useState<string | null>(null);
 
+  // GYM OWNER
+  const [ownedGymId, setOwnedGymId] = useState<string | null>(null);
+  const [ownedGymName, setOwnedGymName] = useState<string | null>(null);
+
+  // PT FIELDS
+  const [ptAtGymId, setPtAtGymId] = useState<string | null>(null);
+  const [ptAtGymName, setPtAtGymName] = useState<string | null>(null);
+  const [ptBio, setPtBio] = useState("");
+  const [ptPhone, setPtPhone] = useState("");
+  const [ptInstagram, setPtInstagram] = useState("");
+  const [ptTikTok, setPtTikTok] = useState("");
+  const [ptWebsite, setPtWebsite] = useState("");
+
   // REVIEWS
   const [myReviews, setMyReviews] = useState([]);
   const [myReviewsLoading, setMyReviewsLoading] = useState(false);
@@ -64,9 +76,9 @@ export default function ProfileScreen() {
   const [allBadges, setAllBadges] = useState([]);
   const [isEditing, setIsEditing] = useState(false);
 
-  // -----------------------------------------------------------------------
+  // ----------------------------------------
   // AVATAR UPLOAD
-  // -----------------------------------------------------------------------
+  // ----------------------------------------
   const handlePickAvatar = async () => {
     try {
       const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -79,7 +91,6 @@ export default function ProfileScreen() {
       });
 
       if (result.canceled) return;
-
       const file = result.assets[0];
       if (file) await uploadAvatar(file.uri);
     } catch (e) {
@@ -107,9 +118,7 @@ export default function ProfileScreen() {
 
       if (uploadError) throw uploadError;
 
-      const { data } = supabase.storage
-        .from("avatars")
-        .getPublicUrl(filename);
+      const { data } = supabase.storage.from("avatars").getPublicUrl(filename);
 
       if (data?.publicUrl) {
         await supabase
@@ -124,9 +133,9 @@ export default function ProfileScreen() {
     }
   };
 
-  // -----------------------------------------------------------------------
+  // ----------------------------------------
   // LOAD AUTH
-  // -----------------------------------------------------------------------
+  // ----------------------------------------
   useEffect(() => {
     const load = async () => {
       const { data } = await supabase.auth.getUser();
@@ -142,34 +151,46 @@ export default function ProfileScreen() {
     return () => listener?.subscription?.unsubscribe();
   }, []);
 
-  // -----------------------------------------------------------------------
+  // ----------------------------------------
   // LOAD PROFILE
-  // -----------------------------------------------------------------------
+  // ----------------------------------------
   useEffect(() => {
     if (!user) return;
 
     const load = async () => {
       const { data } = await supabase
         .from("profiles")
-        .select(
-          "username, training_focus, squat_pb, bench_pb, deadlift_pb, avatar_url, home_gym_id"
-        )
+        .select(`
+          username,
+          role,
+          training_focus,
+          squat_pb, bench_pb, deadlift_pb,
+          avatar_url,
+          home_gym_id,
+          gym_owner_of,
+          pt_at_gym,
+          pt_bio, pt_phone, pt_instagram, pt_tiktok, pt_website
+        `)
         .eq("id", user.id)
         .maybeSingle();
 
       if (data) {
         setUsername(data.username ?? "");
+        setRole(data.role ?? "user");
+
         setTrainingFocuses(
           (data.training_focus ?? "")
             .split(",")
             .map((v) => v.trim())
             .filter(Boolean)
         );
+
         setSquatPb(data.squat_pb ? String(data.squat_pb) : "");
         setBenchPb(data.bench_pb ? String(data.bench_pb) : "");
         setDeadliftPb(data.deadlift_pb ? String(data.deadlift_pb) : "");
         setAvatarUrl(data.avatar_url ?? null);
 
+        // Home Gym
         setHomeGymId(data.home_gym_id);
 
         if (data.home_gym_id) {
@@ -181,15 +202,45 @@ export default function ProfileScreen() {
 
           setHomeGymName(gym?.name ?? null);
         }
+
+        // Owned Gym
+        setOwnedGymId(data.gym_owner_of);
+        if (data.gym_owner_of) {
+          const { data: gym } = await supabase
+            .from("gyms")
+            .select("name")
+            .eq("id", data.gym_owner_of)
+            .maybeSingle();
+
+          setOwnedGymName(gym?.name ?? null);
+        }
+
+        // PT Fields
+        setPtAtGymId(data.pt_at_gym);
+        if (data.pt_at_gym) {
+          const { data: gym } = await supabase
+            .from("gyms")
+            .select("name")
+            .eq("id", data.pt_at_gym)
+            .maybeSingle();
+
+          setPtAtGymName(gym?.name ?? null);
+        }
+
+        setPtBio(data.pt_bio ?? "");
+        setPtPhone(data.pt_phone ?? "");
+        setPtInstagram(data.pt_instagram ?? "");
+        setPtTikTok(data.pt_tiktok ?? "");
+        setPtWebsite(data.pt_website ?? "");
       }
     };
 
     load();
   }, [user]);
 
-  // -----------------------------------------------------------------------
+  // ----------------------------------------
   // LOAD HOME GYM FROM STORAGE
-  // -----------------------------------------------------------------------
+  // ----------------------------------------
   useFocusEffect(
     useCallback(() => {
       const loadGym = async () => {
@@ -204,9 +255,9 @@ export default function ProfileScreen() {
     }, [])
   );
 
-  // -----------------------------------------------------------------------
+  // ----------------------------------------
   // LOAD REVIEWS
-  // -----------------------------------------------------------------------
+  // ----------------------------------------
   useEffect(() => {
     if (!user) return;
 
@@ -246,22 +297,17 @@ export default function ProfileScreen() {
     load();
   }, [user]);
 
-  // -----------------------------------------------------------------------
+  // ----------------------------------------
   // LOAD BADGES
-  // -----------------------------------------------------------------------
+  // ----------------------------------------
   useEffect(() => {
     if (!user) return;
 
-    const load = async () => {
-      const { data } = await supabase
-        .from("badges")
-        .select("*")
-        .order("requirement", { ascending: true });
-
-      setAllBadges(data ?? []);
-    };
-
-    load();
+    supabase
+      .from("badges")
+      .select("*")
+      .order("requirement", { ascending: true })
+      .then(({ data }) => setAllBadges(data ?? []));
   }, [user]);
 
   const unlocked = allBadges.filter(
@@ -273,16 +319,13 @@ export default function ProfileScreen() {
   )[0];
 
   useEffect(() => {
-    const persist = async () => {
-      if (!highest) return;
-      await AsyncStorage.setItem("lastUnlockedBadge", highest.id);
-    };
-    persist();
+    if (!highest) return;
+    AsyncStorage.setItem("lastUnlockedBadge", highest.id);
   }, [highest]);
 
-  // -----------------------------------------------------------------------
+  // ----------------------------------------
   // LOADING SCREEN
-  // -----------------------------------------------------------------------
+  // ----------------------------------------
   if (initialLoading)
     return (
       <View style={styles.center}>
@@ -290,9 +333,9 @@ export default function ProfileScreen() {
       </View>
     );
 
-  // -----------------------------------------------------------------------
+  // ----------------------------------------
   // LOGIN SCREEN
-  // -----------------------------------------------------------------------
+  // ----------------------------------------
   if (!user) {
     return (
       <ScrollView contentContainerStyle={styles.container}>
@@ -359,9 +402,9 @@ export default function ProfileScreen() {
     );
   }
 
-  // -----------------------------------------------------------------------
+  // ----------------------------------------
   // VIEW MODE
-  // -----------------------------------------------------------------------
+  // ----------------------------------------
   if (!isEditing) {
     const shown = showAllMyReviews ? myReviews : myReviews.slice(0, 3);
     const gymsVisited = new Set(myReviews.map((r) => r.gym_id)).size;
@@ -393,6 +436,35 @@ export default function ProfileScreen() {
               {username || "Your username"}
             </Text>
 
+            {/* ROLE BADGE */}
+            {role !== "user" && (
+              <View style={styles.roleBadge}>
+                <Text style={styles.roleBadgeIcon}>
+                  {role === "admin"
+                    ? "🛡️"
+                    : role === "mod"
+                    ? "🔧"
+                    : role === "pt"
+                    ? "💪"
+                    : role === "gym"
+                    ? "🏛️"
+                    : ""}
+                </Text>
+                <Text style={styles.roleBadgeLabel}>
+                  {role === "admin"
+                    ? "Admin"
+                    : role === "mod"
+                    ? "Moderator"
+                    : role === "pt"
+                    ? "PT"
+                    : role === "gym"
+                    ? "Gym"
+                    : ""}
+                </Text>
+              </View>
+            )}
+
+            {/* BADGE */}
             {highest && (
               <Pressable
                 onPress={() => router.push(`/badges?id=${highest.id}`)}
@@ -426,7 +498,7 @@ export default function ProfileScreen() {
             )}
           </View>
 
-          {/* HOME GYM */}
+          {/* HOME GYM — UPDATED WITH LEADERBOARD */}
           <View style={styles.card}>
             <Text style={styles.cardLabel}>Home Gym</Text>
 
@@ -435,23 +507,134 @@ export default function ProfileScreen() {
                 <Text style={styles.cardValue}>{homeGymName}</Text>
 
                 <Pressable
-                  style={styles.leaderboardButton}
                   onPress={() =>
                     router.push({
                       pathname: "/leaderboard/[gym_id]",
                       params: { gym_id: homeGymId },
                     })
                   }
+                  style={[styles.leaderboardButton, { marginTop: 10 }]}
                 >
                   <Text style={styles.leaderboardButtonText}>
-                    View Leaderboard
+                    Leaderboard
                   </Text>
                 </Pressable>
               </>
             ) : (
-              <Text style={styles.cardValueMuted}>Not set yet</Text>
+              <>
+                <Text style={styles.cardValueMuted}>Not set yet</Text>
+
+                <Pressable
+                  onPress={() => router.push("/profile/select-gym")}
+                  style={[styles.buttonPrimary, { marginTop: 10 }]}
+                >
+                  <Text style={styles.buttonPrimaryText}>
+                    Choose Home Gym
+                  </Text>
+                </Pressable>
+              </>
             )}
           </View>
+          {/* ⭐ GYM OWNER SECTION */}
+          {role === "gym" && (
+            <View style={styles.card}>
+              <Text style={styles.cardLabel}>Owned Gym</Text>
+
+              {ownedGymName ? (
+                <Text style={styles.cardValue}>{ownedGymName}</Text>
+              ) : (
+                <Text style={styles.cardValueMuted}>Not set yet</Text>
+              )}
+
+              <Pressable
+                onPress={() =>
+                  router.push("/profile/select-gym?from=owned")
+                }
+                style={[styles.buttonPrimary, { marginTop: 10 }]}
+              >
+                <Text style={styles.buttonPrimaryText}>
+                  Select Owned Gym
+                </Text>
+              </Pressable>
+            </View>
+          )}
+
+          {/* ⭐ PT SECTION */}
+          {role === "pt" && (
+            <>
+              <View style={styles.card}>
+                <Text style={styles.cardLabel}>PT Gym</Text>
+
+                {ptAtGymName ? (
+                  <Text style={styles.cardValue}>{ptAtGymName}</Text>
+                ) : (
+                  <Text style={styles.cardValueMuted}>Not set yet</Text>
+                )}
+
+                <Pressable
+                  onPress={() =>
+                    router.push("/profile/select-gym?from=pt")
+                  }
+                  style={[styles.buttonPrimary, { marginTop: 10 }]}
+                >
+                  <Text style={styles.buttonPrimaryText}>
+                    Select Gym
+                  </Text>
+                </Pressable>
+              </View>
+
+              <View style={styles.card}>
+                <Text style={styles.cardLabel}>PT Bio / About</Text>
+                <TextInput
+                  multiline
+                  value={ptBio}
+                  onChangeText={setPtBio}
+                  placeholder="Tell people about your coaching style..."
+                  style={styles.input}
+                />
+
+                <Text style={[styles.cardLabel, { marginTop: 12 }]}>
+                  Contact Number
+                </Text>
+                <TextInput
+                  value={ptPhone}
+                  onChangeText={setPtPhone}
+                  placeholder="07..."
+                  style={styles.input}
+                />
+
+                <Text style={[styles.cardLabel, { marginTop: 12 }]}>
+                  Instagram
+                </Text>
+                <TextInput
+                  value={ptInstagram}
+                  onChangeText={setPtInstagram}
+                  placeholder="@username"
+                  style={styles.input}
+                />
+
+                <Text style={[styles.cardLabel, { marginTop: 12 }]}>
+                  TikTok
+                </Text>
+                <TextInput
+                  value={ptTikTok}
+                  onChangeText={setPtTikTok}
+                  placeholder="@username"
+                  style={styles.input}
+                />
+
+                <Text style={[styles.cardLabel, { marginTop: 12 }]}>
+                  Website
+                </Text>
+                <TextInput
+                  value={ptWebsite}
+                  onChangeText={setPtWebsite}
+                  placeholder="https://"
+                  style={styles.input}
+                />
+              </View>
+            </>
+          )}
 
           {/* PBs */}
           <View style={styles.card}>
@@ -467,7 +650,7 @@ export default function ProfileScreen() {
             </Text>
           </View>
 
-          {/* REVIEWS */}
+          {/* My Reviews */}
           <View style={styles.card}>
             <Text style={styles.cardLabel}>My reviews</Text>
 
@@ -488,9 +671,7 @@ export default function ProfileScreen() {
                     {"★".repeat(r.rating ?? 0)}
                   </Text>
                   {r.comment && (
-                    <Text style={styles.myReviewComment}>
-                      {r.comment}
-                    </Text>
+                    <Text style={styles.myReviewComment}>{r.comment}</Text>
                   )}
                   <Text style={styles.myReviewMeta}>
                     {new Date(r.created_at).toLocaleDateString()}
@@ -522,7 +703,7 @@ export default function ProfileScreen() {
             )}
           </View>
 
-          {/* BUTTONS */}
+          {/* Buttons */}
           <Pressable
             onPress={() => setIsEditing(true)}
             style={styles.buttonPrimary}
@@ -537,7 +718,6 @@ export default function ProfileScreen() {
             <Text style={styles.buttonSecondaryText}>Sign out</Text>
           </Pressable>
 
-          {/* SUPPORT BUTTON */}
           <Pressable
             onPress={() => router.push("/support")}
             style={[styles.buttonSecondary, { marginTop: 12 }]}
@@ -549,9 +729,9 @@ export default function ProfileScreen() {
     );
   }
 
-  // -----------------------------------------------------------------------
+  // ------------------------------------------------------------
   // EDIT MODE
-  // -----------------------------------------------------------------------
+  // ------------------------------------------------------------
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.title}>Edit profile</Text>
@@ -565,56 +745,6 @@ export default function ProfileScreen() {
           placeholder="Your username"
           style={styles.input}
         />
-      </View>
-
-      {/* TRAINING FOCUS */}
-      <View style={styles.card}>
-        <Text style={styles.cardLabel}>Training focus</Text>
-        <View style={styles.focusChipsRow}>
-          {FOCUS_OPTIONS.map((opt) => {
-            const active = trainingFocuses.includes(opt);
-            return (
-              <Pressable
-                key={opt}
-                onPress={() =>
-                  setTrainingFocuses(
-                    active
-                      ? trainingFocuses.filter((x) => x !== opt)
-                      : [...trainingFocuses, opt]
-                  )
-                }
-                style={[styles.focusChip, active && styles.focusChipActive]}
-              >
-                <Text
-                  style={[
-                    styles.focusChipText,
-                    active && styles.focusChipTextActive,
-                  ]}
-                >
-                  {opt}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </View>
-
-      {/* HOME GYM */}
-      <View style={styles.card}>
-        <Text style={styles.cardLabel}>Home Gym</Text>
-
-        {homeGymName ? (
-          <Text style={styles.cardValue}>{homeGymName}</Text>
-        ) : (
-          <Text style={styles.cardValueMuted}>Not selected</Text>
-        )}
-
-        <Pressable
-          onPress={() => router.push("/profile/select-gym")}
-          style={[styles.buttonPrimary, { marginTop: 10 }]}
-        >
-          <Text style={styles.buttonPrimaryText}>Choose Home Gym</Text>
-        </Pressable>
       </View>
 
       {/* PBs */}
@@ -646,7 +776,151 @@ export default function ProfileScreen() {
         />
       </View>
 
-      {/* ACTIONS */}
+      {/* Training Focus */}
+      <View style={styles.card}>
+        <Text style={styles.cardLabel}>Training focus</Text>
+
+        <View style={styles.focusChipsRow}>
+          {FOCUS_OPTIONS.map((opt) => {
+            const active = trainingFocuses.includes(opt);
+            return (
+              <Pressable
+                key={opt}
+                onPress={() =>
+                  setTrainingFocuses(
+                    active
+                      ? trainingFocuses.filter((x) => x !== opt)
+                      : [...trainingFocuses, opt]
+                  )
+                }
+                style={[styles.focusChip, active && styles.focusChipActive]}
+              >
+                <Text
+                  style={[
+                    styles.focusChipText,
+                    active && styles.focusChipTextActive,
+                  ]}
+                >
+                  {opt}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+
+      {/* HOME GYM — NO LEADERBOARD IN EDIT MODE */}
+      <View style={styles.card}>
+        <Text style={styles.cardLabel}>Home Gym</Text>
+
+        {homeGymName ? (
+          <Text style={styles.cardValue}>{homeGymName}</Text>
+        ) : (
+          <Text style={styles.cardValueMuted}>Not selected</Text>
+        )}
+
+        <Pressable
+          onPress={() => router.push("/profile/select-gym")}
+          style={[styles.buttonPrimary, { marginTop: 10 }]}
+        >
+          <Text style={styles.buttonPrimaryText}>Choose Home Gym</Text>
+        </Pressable>
+      </View>
+
+      {/* GYM OWNER */}
+      {role === "gym" && (
+        <View style={styles.card}>
+          <Text style={styles.cardLabel}>Owned Gym</Text>
+
+          {ownedGymName ? (
+            <Text style={styles.cardValue}>{ownedGymName}</Text>
+          ) : (
+            <Text style={styles.cardValueMuted}>Not selected</Text>
+          )}
+
+          <Pressable
+            onPress={() => router.push("/profile/select-gym?from=owned")}
+            style={[styles.buttonPrimary, { marginTop: 10 }]}
+          >
+            <Text style={styles.buttonPrimaryText}>Select Owned Gym</Text>
+          </Pressable>
+        </View>
+      )}
+
+      {/* PT SECTION */}
+      {role === "pt" && (
+        <>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>PT Gym</Text>
+
+            {ptAtGymName ? (
+              <Text style={styles.cardValue}>{ptAtGymName}</Text>
+            ) : (
+              <Text style={styles.cardValueMuted}>Not selected</Text>
+            )}
+
+            <Pressable
+              onPress={() => router.push("/profile/select-gym?from=pt")}
+              style={[styles.buttonPrimary, { marginTop: 10 }]}
+            >
+              <Text style={styles.buttonPrimaryText}>Choose Gym</Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>PT Bio / About</Text>
+            <TextInput
+              multiline
+              value={ptBio}
+              onChangeText={setPtBio}
+              placeholder="Tell people about your coaching style..."
+              style={styles.input}
+            />
+
+            <Text style={[styles.cardLabel, { marginTop: 12 }]}>
+              Contact Number
+            </Text>
+            <TextInput
+              value={ptPhone}
+              onChangeText={setPtPhone}
+              placeholder="07..."
+              style={styles.input}
+            />
+
+            <Text style={[styles.cardLabel, { marginTop: 12 }]}>
+              Instagram
+            </Text>
+            <TextInput
+              value={ptInstagram}
+              onChangeText={setPtInstagram}
+              placeholder="@username"
+              style={styles.input}
+            />
+
+            <Text style={[styles.cardLabel, { marginTop: 12 }]}>
+              TikTok
+            </Text>
+            <TextInput
+              value={ptTikTok}
+              onChangeText={setPtTikTok}
+              placeholder="@username"
+              style={styles.input}
+            />
+
+            <Text style={[styles.cardLabel, { marginTop: 12 }]}>
+              Website
+            </Text>
+            <TextInput
+              value={ptWebsite}
+              onChangeText={setPtWebsite}
+              placeholder="https://"
+              style={styles.input}
+            />
+          </View>
+        </>
+      )}
+
+      {/* SAVE & CANCEL */}
       <View style={styles.editActions}>
         <Pressable
           onPress={() => setIsEditing(false)}
@@ -655,7 +929,6 @@ export default function ProfileScreen() {
           <Text style={styles.buttonSecondaryText}>Cancel</Text>
         </Pressable>
 
-        {/* ⭐ UPDATED SAVE BUTTON WITH UNIQUE USERNAME HANDLING ⭐ */}
         <Pressable
           onPress={async () => {
             const { error } = await supabase
@@ -667,14 +940,20 @@ export default function ProfileScreen() {
                 bench_pb: benchPb || null,
                 deadlift_pb: deadliftPb || null,
                 home_gym_id: homeGymId || null,
+                gym_owner_of: role === "gym" ? ownedGymId : null,
+                pt_at_gym: role === "pt" ? ptAtGymId : null,
+                pt_bio: role === "pt" ? ptBio : null,
+                pt_phone: role === "pt" ? ptPhone : null,
+                pt_instagram: role === "pt" ? ptInstagram : null,
+                pt_tiktok: role === "pt" ? ptTikTok : null,
+                pt_website: role === "pt" ? ptWebsite : null,
               })
               .eq("id", user.id);
 
-            // Unique username check
             if (error?.message?.includes("duplicate key value")) {
               return Alert.alert(
                 "Username Taken",
-                "That username is already in use. Please choose another."
+                "That username is already in use."
               );
             }
 
@@ -694,17 +973,15 @@ export default function ProfileScreen() {
   );
 }
 
-// -----------------------------------------------------------------------
+// ------------------------------------------------------------
 // STYLES
-// -----------------------------------------------------------------------
-
+// ------------------------------------------------------------
 const PURPLE = "#5A3E8C";
 const NAVY = "#1D3D47";
 const SOFT_NAVY = "#445A65";
 
 const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
-
   container: { padding: 16, paddingTop: 40, gap: 16 },
 
   title: { fontSize: 22, fontWeight: "700", color: NAVY },
@@ -784,6 +1061,19 @@ const styles = StyleSheet.create({
     color: NAVY,
     marginTop: 6,
   },
+
+  roleBadge: {
+    marginTop: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#eee",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 6,
+  },
+  roleBadgeIcon: { fontSize: 18 },
+  roleBadgeLabel: { fontSize: 13, fontWeight: "700", color: NAVY },
 
   badge: {
     alignItems: "center",

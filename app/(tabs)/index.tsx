@@ -27,25 +27,50 @@ type Gym = {
 type GymRatings = {
   overallAvg?: number;
   overallCount?: number;
+
   bodybuildingAvg?: number;
   bodybuildingCount?: number;
+
   powerliftingAvg?: number;
   powerliftingCount?: number;
+
   hyroxAvg?: number;
   hyroxCount?: number;
+
   strongmanAvg?: number;
   strongmanCount?: number;
+
   classesAvg?: number;
   classesCount?: number;
+
+  crossfitAvg?: number;
+  crossfitCount?: number;
+
+  boxingAvg?: number;
+  boxingCount?: number;
+
+  martial_artsAvg?: number;
+  martial_artsCount?: number;
+
+  yogaAvg?: number;
+  yogaCount?: number;
+
+  pilatesAvg?: number;
+  pilatesCount?: number;
 };
 
 type FilterKey =
-  | "all"
+  | "Overall"
   | "bodybuilding"
   | "powerlifting"
   | "hyrox"
   | "strongman"
-  | "classes";
+  | "classes"
+  | "crossfit"
+  | "boxing"
+  | "martial_arts"
+  | "yoga"
+  | "pilates";
 
 export default function HomeTab() {
   const router = useRouter();
@@ -117,7 +142,7 @@ export default function HomeTab() {
         const { data: reviewData } = await supabase
           .from("reviews")
           .select(
-            "gym_id,rating,bodybuilding_rating,powerlifting_rating,hyrox_rating,strongman_rating,classes_rating"
+            "gym_id,rating,bodybuilding_rating,powerlifting_rating,hyrox_rating,strongman_rating,classes_rating,crossfit_rating,boxing_rating,martial_arts_rating,yoga_rating,pilates_rating"
           );
 
         const map = {};
@@ -134,11 +159,18 @@ export default function HomeTab() {
 
         for (const r of reviewData ?? []) {
           addRating(r.gym_id, "overallAvg", "overallCount", r.rating);
+
           addRating(r.gym_id, "bodybuildingAvg", "bodybuildingCount", r.bodybuilding_rating);
           addRating(r.gym_id, "powerliftingAvg", "powerliftingCount", r.powerlifting_rating);
           addRating(r.gym_id, "hyroxAvg", "hyroxCount", r.hyrox_rating);
           addRating(r.gym_id, "strongmanAvg", "strongmanCount", r.strongman_rating);
           addRating(r.gym_id, "classesAvg", "classesCount", r.classes_rating);
+
+          addRating(r.gym_id, "crossfitAvg", "crossfitCount", r.crossfit_rating);
+          addRating(r.gym_id, "boxingAvg", "boxingCount", r.boxing_rating);
+          addRating(r.gym_id, "martial_artsAvg", "martial_artsCount", r.martial_arts_rating);
+          addRating(r.gym_id, "yogaAvg", "yogaCount", r.yoga_rating);
+          addRating(r.gym_id, "pilatesAvg", "pilatesCount", r.pilates_rating);
         }
 
         if (isActive) setRatings(map);
@@ -149,7 +181,7 @@ export default function HomeTab() {
     }, [])
   );
 
-  // Load gyms for region
+  // Load gyms in region
   const loadGymsForRegion = async (r) => {
     const minLat = r.latitude - r.latitudeDelta / 2;
     const maxLat = r.latitude + r.latitudeDelta / 2;
@@ -188,20 +220,22 @@ export default function HomeTab() {
   // Filter helpers
   const getSummaryForFilter = (summary) => {
     if (!summary) return { avg: undefined, count: undefined };
-    switch (filter) {
-      case "bodybuilding":
-        return { avg: summary.bodybuildingAvg, count: summary.bodybuildingCount };
-      case "powerlifting":
-        return { avg: summary.powerliftingAvg, count: summary.powerliftingCount };
-      case "hyrox":
-        return { avg: summary.hyroxAvg, count: summary.hyroxCount };
-      case "strongman":
-        return { avg: summary.strongmanAvg, count: summary.strongmanCount };
-      case "classes":
-        return { avg: summary.classesAvg, count: summary.classesCount };
-      default:
-        return { avg: summary.overallAvg, count: summary.overallCount };
-    }
+
+    return {
+      bodybuilding: { avg: summary.bodybuildingAvg, count: summary.bodybuildingCount },
+      powerlifting: { avg: summary.powerliftingAvg, count: summary.powerliftingCount },
+      hyrox: { avg: summary.hyroxAvg, count: summary.hyroxCount },
+      strongman: { avg: summary.strongmanAvg, count: summary.strongmanCount },
+      classes: { avg: summary.classesAvg, count: summary.classesCount },
+
+      crossfit: { avg: summary.crossfitAvg, count: summary.crossfitCount },
+      boxing: { avg: summary.boxingAvg, count: summary.boxingCount },
+      martial_arts: { avg: summary.martial_artsAvg, count: summary.martial_artsCount },
+      yoga: { avg: summary.yogaAvg, count: summary.yogaCount },
+      pilates: { avg: summary.pilatesAvg, count: summary.pilatesCount },
+
+      all: { avg: summary.overallAvg, count: summary.overallCount },
+    }[filter];
   };
 
   const shouldShowGym = (g) => {
@@ -217,6 +251,12 @@ export default function HomeTab() {
         hyrox: "hyroxCount",
         strongman: "strongmanCount",
         classes: "classesCount",
+
+        crossfit: "crossfitCount",
+        boxing: "boxingCount",
+        martial_arts: "martial_artsCount",
+        yoga: "yogaCount",
+        pilates: "pilatesCount",
       }[filter];
 
       if (!summary?.[needed]) return false;
@@ -233,12 +273,9 @@ export default function HomeTab() {
     return avg ? `${avg.toFixed(1)}★` : "–";
   };
 
-  // ------------------------------------------------------
-  // RENDER UI
-  // ------------------------------------------------------
+  // UI Rendering
   return (
     <View style={styles.container}>
-
       {/* SEARCH BAR */}
       <View style={styles.topSearchWrap}>
         <Ionicons name="search" size={18} color={NAVY} style={{ marginRight: 6 }} />
@@ -270,7 +307,7 @@ export default function HomeTab() {
           }}
         />
 
-        {/* 📍 recenter button */}
+        {/* 📍 Recenter */}
         {userLocation && (
           <Pressable
             onPress={() =>
@@ -290,7 +327,7 @@ export default function HomeTab() {
           </Pressable>
         )}
 
-        {/* ⭐ saved gyms */}
+        {/* ⭐ Saved */}
         <Pressable
           onPress={() => router.push("/saved-gyms")}
           style={[styles.stackedButton, { marginTop: 110 }]}
@@ -365,29 +402,40 @@ export default function HomeTab() {
           </View>
 
           <Text style={styles.filterPanelSubtitle}>Discipline</Text>
+
           <View style={styles.filterOptions}>
-            {["all", "bodybuilding", "powerlifting", "hyrox", "strongman", "classes"].map(
-              (k) => (
-                <Pressable
-                  key={k}
-                  onPress={() => setPendingFilter(k)}
+            {[
+              "overall",
+              "bodybuilding",
+              "powerlifting",
+              "hyrox",
+              "strongman",
+              "classes",
+              "crossfit",
+              "boxing",
+              "martial_arts",
+              "yoga",
+              "pilates",
+            ].map((k) => (
+              <Pressable
+                key={k}
+                onPress={() => setPendingFilter(k)}
+                style={[
+                  styles.filterRow,
+                  pendingFilter === k && styles.filterRowActive,
+                ]}
+              >
+                <View
                   style={[
-                    styles.filterRow,
-                    pendingFilter === k && styles.filterRowActive,
+                    styles.radioOuter,
+                    pendingFilter === k && styles.radioOuterActive,
                   ]}
                 >
-                  <View
-                    style={[
-                      styles.radioOuter,
-                      pendingFilter === k && styles.radioOuterActive,
-                    ]}
-                  >
-                    {pendingFilter === k && <View style={styles.radioInner} />}
-                  </View>
-                  <Text style={styles.filterRowText}>{k}</Text>
-                </Pressable>
-              )
-            )}
+                  {pendingFilter === k && <View style={styles.radioInner} />}
+                </View>
+                <Text style={styles.filterRowText}>{k}</Text>
+              </Pressable>
+            ))}
           </View>
 
           <View style={styles.minRatingContainer}>
@@ -480,9 +528,9 @@ const styles = StyleSheet.create({
 
   topSearchWrap: {
     position: "absolute",
-    top: 20,
+    top: 30,
     left: 20,
-    right: 80, // space for stacked buttons
+    right: 80,
     backgroundColor: "white",
     borderRadius: 20,
     paddingHorizontal: 14,

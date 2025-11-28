@@ -33,14 +33,29 @@ type Review = {
   rating: number;
   comment: string | null;
   created_at: string;
+
   bodybuilding_rating: number | null;
   powerlifting_rating: number | null;
   hyrox_rating: number | null;
   strongman_rating: number | null;
   classes_rating: number | null;
+
+  crossfit_rating: number | null;
+  boxing_rating: number | null;
+  martial_arts_rating: number | null;
+  yoga_rating: number | null;
+  pilates_rating: number | null;
+
   user_id: string | null;
   username?: string | null;
   avatar_url?: string | null;
+};
+
+type PublicProfile = {
+  id: string;
+  username: string | null;
+  avatar_url: string | null;
+  role: string | null;
 };
 
 type DisciplineSummary = { avg: number | null; count: number };
@@ -50,7 +65,12 @@ type DisciplineKey =
   | "powerlifting"
   | "hyrox"
   | "strongman"
-  | "classes";
+  | "classes"
+  | "crossfit"
+  | "boxing"
+  | "martial_arts"
+  | "yoga"
+  | "pilates";
 
 const DISCIPLINE_META: Record<
   DisciplineKey,
@@ -61,6 +81,21 @@ const DISCIPLINE_META: Record<
   hyrox: { label: "Hyrox", icon: "🏃" },
   strongman: { label: "Strongman", icon: "🧱" },
   classes: { label: "Classes", icon: "📅" },
+
+  crossfit: { label: "Crossfit", icon: "🔥" },
+  boxing: { label: "Boxing", icon: "🥊" },
+  martial_arts: { label: "Martial Arts", icon: "🥋" },
+  yoga: { label: "Yoga", icon: "🧘" },
+  pilates: { label: "Pilates", icon: "🪷" },
+};
+
+// Role → Label + Icon mapping
+const ROLE_META: Record<string, { label: string; icon: string }> = {
+  admin: { label: "Admin", icon: "🛡️" },
+  mod: { label: "Moderator", icon: "🔧" },
+  pt: { label: "PT", icon: "💪" },
+  gym: { label: "Gym", icon: "🏛️" },
+  user: { label: "", icon: "" },
 };
 
 export default function GymDetailScreen() {
@@ -73,69 +108,88 @@ export default function GymDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [showAllReviews, setShowAllReviews] = useState(false);
 
-  const [userHasVisited, setUserHasVisited] = useState(false);
+  const [gymOwners, setGymOwners] = useState<PublicProfile[]>([]);
+  const [pts, setPts] = useState<PublicProfile[]>([]);
 
-  // ⭐ Bookmark state
+  const [userHasVisited, setUserHasVisited] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  // Review form state
+  // Review Form
   const [newRating, setNewRating] = useState<number | null>(null);
   const [newBodybuildingRating, setNewBodybuildingRating] = useState<number | null>(null);
   const [newPowerliftingRating, setNewPowerliftingRating] = useState<number | null>(null);
   const [newHyroxRating, setNewHyroxRating] = useState<number | null>(null);
   const [newStrongmanRating, setNewStrongmanRating] = useState<number | null>(null);
   const [newClassesRating, setNewClassesRating] = useState<number | null>(null);
+
+  const [newCrossfitRating, setNewCrossfitRating] = useState<number | null>(null);
+  const [newBoxingRating, setNewBoxingRating] = useState<number | null>(null);
+  const [newMartialArtsRating, setNewMartialArtsRating] = useState<number | null>(null);
+  const [newYogaRating, setNewYogaRating] = useState<number | null>(null);
+  const [newPilatesRating, setNewPilatesRating] = useState<number | null>(null);
+
   const [newComment, setNewComment] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  // LOAD GYM, REVIEWS & BOOKMARK STATUS
+  // ----------------------------------------------------------
+  // LOAD GYM, REVIEWS, OWNERS & PTs
+  // ----------------------------------------------------------
   useEffect(() => {
-    const loadData = async () => {
-      if (!gymId) return;
+    if (!gymId) return;
 
-      // -------------------------
-      // LOAD BOOKMARK STATUS
-      // -------------------------
+    const load = async () => {
       const { data: auth } = await supabase.auth.getUser();
-      if (auth?.user) {
+      const currentUser = auth?.user;
+
+      // Bookmark status
+      if (currentUser) {
         const { data: bookmark } = await supabase
           .from("gym_bookmarks")
           .select("id")
           .eq("gym_id", gymId)
-          .eq("user_id", auth.user.id)
+          .eq("user_id", currentUser.id)
           .maybeSingle();
-
         setSaved(!!bookmark);
       }
 
-      // -------------------------
-      // LOAD GYM
-      // -------------------------
+      // Load gym
       const { data: gymData } = await supabase
         .from("gyms")
-        .select("id,name,latitude,longitude,description")
+        .select("*")
         .eq("id", gymId)
         .single();
+      setGym(gymData);
 
-      setGym(gymData as Gym);
+      // Load owners
+      const { data: owners } = await supabase
+        .from("profiles")
+        .select("id, username, avatar_url, role")
+        .eq("gym_owner_of", gymId);
+      setGymOwners(owners ?? []);
 
-      // -------------------------
-      // LOAD REVIEWS
-      // -------------------------
+      // Load PTs
+      const { data: ptList } = await supabase
+        .from("profiles")
+        .select("id, username, avatar_url, role")
+        .eq("pt_at_gym", gymId);
+      setPts(ptList ?? []);
+
+      // Load reviews
       const { data: reviewData } = await supabase
         .from("reviews")
-        .select(
-          "id,rating,comment,created_at,bodybuilding_rating,powerlifting_rating,hyrox_rating,strongman_rating,classes_rating,user_id"
-        )
+        .select(`
+          id,rating,comment,created_at,
+          bodybuilding_rating,powerlifting_rating,hyrox_rating,strongman_rating,classes_rating,
+          crossfit_rating,boxing_rating,martial_arts_rating,yoga_rating,pilates_rating,
+          user_id
+        `)
         .eq("gym_id", gymId)
         .order("created_at", { ascending: false });
 
-      const raw: Review[] = reviewData ?? [];
-
+      const raw = reviewData ?? [];
       const userIds = Array.from(new Set(raw.map(r => r.user_id).filter(Boolean)));
 
       let lookup: Record<string, { username: string | null; avatar_url: string | null }> = {};
-
       if (userIds.length > 0) {
         const { data: profiles } = await supabase
           .from("profiles")
@@ -157,24 +211,23 @@ export default function GymDetailScreen() {
       }));
 
       setReviews(formatted);
-
-      if (auth?.user) {
-        const mine = formatted.find(r => r.user_id === auth.user.id);
+      if (currentUser) {
+        const mine = formatted.find(r => r.user_id === currentUser.id);
         setUserHasVisited(!!mine);
       }
 
       setLoading(false);
     };
 
-    loadData();
+    load();
   }, [gymId]);
 
-  // ⭐ Toggle bookmark
+  // ----------------------------------------------------------
+  // BOOKMARK TOGGLE
+  // ----------------------------------------------------------
   const toggleBookmark = async () => {
     const { data: auth } = await supabase.auth.getUser();
-    if (!auth?.user) {
-      return Alert.alert("Login required", "You must log in to save gyms.");
-    }
+    if (!auth?.user) return Alert.alert("Login required", "Please log in.");
 
     if (saved) {
       await supabase
@@ -182,24 +235,25 @@ export default function GymDetailScreen() {
         .delete()
         .eq("gym_id", gymId)
         .eq("user_id", auth.user.id);
+
       setSaved(false);
     } else {
       await supabase.from("gym_bookmarks").insert({
         gym_id: gymId,
         user_id: auth.user.id,
       });
+
       setSaved(true);
     }
   };
 
+  // ----------------------------------------------------------
   // SUBMIT REVIEW
+  // ----------------------------------------------------------
   const handleSubmitReview = async () => {
-    if (!gymId || !newRating) return;
-
     const { data: auth } = await supabase.auth.getUser();
-    if (!auth?.user) {
-      return Alert.alert("Login required", "You must log in to leave a review.");
-    }
+    if (!auth?.user) return Alert.alert("Login required", "Please log in.");
+    if (!newRating) return;
 
     setSubmitting(true);
 
@@ -210,11 +264,18 @@ export default function GymDetailScreen() {
         user_id: auth.user.id,
         rating: newRating,
         comment: newComment.trim() || null,
+
         bodybuilding_rating: newBodybuildingRating,
         powerlifting_rating: newPowerliftingRating,
         hyrox_rating: newHyroxRating,
         strongman_rating: newStrongmanRating,
         classes_rating: newClassesRating,
+
+        crossfit_rating: newCrossfitRating,
+        boxing_rating: newBoxingRating,
+        martial_arts_rating: newMartialArtsRating,
+        yoga_rating: newYogaRating,
+        pilates_rating: newPilatesRating,
       })
       .select("*")
       .single();
@@ -248,49 +309,69 @@ export default function GymDetailScreen() {
     setNewHyroxRating(null);
     setNewStrongmanRating(null);
     setNewClassesRating(null);
+    setNewCrossfitRating(null);
+    setNewBoxingRating(null);
+    setNewMartialArtsRating(null);
+    setNewYogaRating(null);
+    setNewPilatesRating(null);
     setNewComment("");
   };
 
-  // COMPUTE AVERAGES
+  // ----------------------------------------------------------
+  // AVERAGES
+  // ----------------------------------------------------------
   const averageRating =
     reviews.length > 0
-      ? reviews.reduce((sum, r) => sum + (r.rating ?? 0), 0) / reviews.length
+      ? reviews.reduce((s, r) => s + (r.rating ?? 0), 0) / reviews.length
       : null;
 
-  const computeDisciplineAverages = (): Record<DisciplineKey, DisciplineSummary> => {
-    const sums = { bodybuilding: 0, powerlifting: 0, hyrox: 0, strongman: 0, classes: 0 };
-    const count = { bodybuilding: 0, powerlifting: 0, hyrox: 0, strongman: 0, classes: 0 };
+  const disciplineSums = {
+    bodybuilding: { sum: 0, count: 0 },
+    powerlifting: { sum: 0, count: 0 },
+    hyrox: { sum: 0, count: 0 },
+    strongman: { sum: 0, count: 0 },
+    classes: { sum: 0, count: 0 },
 
-    for (const r of reviews) {
-      if (r.bodybuilding_rating != null) { sums.bodybuilding += r.bodybuilding_rating; count.bodybuilding++; }
-      if (r.powerlifting_rating != null) { sums.powerlifting += r.powerlifting_rating; count.powerlifting++; }
-      if (r.hyrox_rating != null) { sums.hyrox += r.hyrox_rating; count.hyrox++; }
-      if (r.strongman_rating != null) { sums.strongman += r.strongman_rating; count.strongman++; }
-      if (r.classes_rating != null) { sums.classes += r.classes_rating; count.classes++; }
-    }
-
-    return {
-      bodybuilding: { avg: count.bodybuilding ? sums.bodybuilding / count.bodybuilding : null, count: count.bodybuilding },
-      powerlifting: { avg: count.powerlifting ? sums.powerlifting / count.powerlifting : null, count: count.powerlifting },
-      hyrox: { avg: count.hyrox ? sums.hyrox / count.hyrox : null, count: count.hyrox },
-      strongman: { avg: count.strongman ? sums.strongman / count.strongman : null, count: count.strongman },
-      classes: { avg: count.classes ? sums.classes / count.classes : null, count: count.classes },
-    };
+    crossfit: { sum: 0, count: 0 },
+    boxing: { sum: 0, count: 0 },
+    martial_arts: { sum: 0, count: 0 },
+    yoga: { sum: 0, count: 0 },
+    pilates: { sum: 0, count: 0 },
   };
 
-  const discipline = computeDisciplineAverages();
+  reviews.forEach(r => {
+    (Object.keys(disciplineSums) as DisciplineKey[]).forEach(key => {
+      const val = r[`${key}_rating` as keyof Review] as number | null;
+      if (val != null) {
+        disciplineSums[key].sum += val;
+        disciplineSums[key].count += 1;
+      }
+    });
+  });
+
+  const discipline = Object.fromEntries(
+    (Object.keys(disciplineSums) as DisciplineKey[]).map(key => [
+      key,
+      {
+        avg:
+          disciplineSums[key].count > 0
+            ? disciplineSums[key].sum / disciplineSums[key].count
+            : null,
+        count: disciplineSums[key].count,
+      },
+    ])
+  ) as Record<DisciplineKey, DisciplineSummary>;
 
   const bestForLabel = (() => {
-    const rated = Object.entries(discipline).filter(
-      ([, v]) => v.avg != null && v.count > 0
-    ) as [DisciplineKey, DisciplineSummary][];
+    const rated = (Object.entries(discipline) as [DisciplineKey, DisciplineSummary][])
+      .filter(([, v]) => v.avg != null && v.count > 0);
 
     if (rated.length === 0) return null;
 
     const maxAvg = Math.max(...rated.map(([, v]) => v.avg!));
     return rated
       .filter(([, v]) => v.avg === maxAvg)
-      .map(([key]) => `${DISCIPLINE_META[key as DisciplineKey].icon} ${DISCIPLINE_META[key as DisciplineKey].label}`)
+      .map(([key]) => `${DISCIPLINE_META[key].icon} ${DISCIPLINE_META[key].label}`)
       .join(" · ");
   })();
 
@@ -313,11 +394,13 @@ export default function GymDetailScreen() {
 
   const displayedReviews = showAllReviews ? reviews : reviews.slice(0, 3);
 
+  // ----------------------------------------------------------
+  // JOIN CHAT
+  // ----------------------------------------------------------
   const joinChat = async () => {
     const { data: auth } = await supabase.auth.getUser();
-    if (!auth?.user) {
-      return Alert.alert("Login required", "Please log in to join this chat.");
-    }
+    if (!auth?.user)
+      return Alert.alert("Login required", "Please log in to join chat.");
 
     const { data: existing } = await supabase
       .from("chat_memberships")
@@ -326,43 +409,59 @@ export default function GymDetailScreen() {
       .eq("user_id", auth.user.id)
       .maybeSingle();
 
-    if (existing) return router.push(`/chat/${gymId}`);
+    if (!existing) {
+      const { error } = await supabase
+        .from("chat_memberships")
+        .insert({ gym_id: gymId, user_id: auth.user.id });
 
-    const { error } = await supabase
-      .from("chat_memberships")
-      .insert({
-        gym_id: gymId,
-        user_id: auth.user.id,
-      });
-
-    if (error) return Alert.alert("Error", error.message);
+      if (error) return Alert.alert("Error", error.message);
+    }
 
     router.push(`/chat/${gymId}`);
   };
 
+  // ----------------------------------------------------------
+  // ROLE BADGE RENDER
+  // ----------------------------------------------------------
+  const renderRoleBadge = (role: string | null) => {
+    if (!role || role === "user") return null;
+    const meta = ROLE_META[role] ?? { label: "", icon: "" };
+    if (!meta.label) return null;
+
+    return (
+      <View style={styles.roleBadgeSmall}>
+        <Text style={styles.roleBadgeIcon}>{meta.icon}</Text>
+        <Text style={styles.roleBadgeLabel}>{meta.label}</Text>
+      </View>
+    );
+  };
+
+  // ----------------------------------------------------------
+  // UI RENDER
+  // ----------------------------------------------------------
   return (
     <>
-      {/* ⭐ Bookmark added to header */}
       <Stack.Screen
         options={{
           title: gym?.name ?? "Gym",
           headerRight: () => (
             <Pressable onPress={toggleBookmark} style={{ marginRight: 15 }}>
-              <Text style={{ fontSize: 26 }}>
-                {saved ? "⭐" : "☆"}
-              </Text>
+              <Text style={{ fontSize: 26 }}>{saved ? "⭐" : "☆"}</Text>
             </Pressable>
           ),
         }}
       />
 
       {loading ? (
-        <View style={styles.center}><ActivityIndicator /></View>
+        <View style={styles.center}>
+          <ActivityIndicator />
+        </View>
       ) : !gym ? (
-        <View style={styles.center}><Text>Gym not found.</Text></View>
+        <View style={styles.center}>
+          <Text>Gym not found.</Text>
+        </View>
       ) : (
         <ScrollView contentContainerStyle={styles.container}>
-
           {/* MAP */}
           <View style={styles.mapWrap}>
             <MapView
@@ -379,16 +478,14 @@ export default function GymDetailScreen() {
             </MapView>
           </View>
 
-          {/* TITLE */}
           <Text style={styles.title}>{gym.name}</Text>
 
           <Text style={userHasVisited ? styles.visited : styles.notVisited}>
             {userHasVisited ? "Visited" : "Not visited"}
           </Text>
 
-          {/* ACTIONS (Directions + Chat) */}
+          {/* ACTION BUTTONS */}
           <View style={styles.actionRow}>
-
             <Pressable
               style={styles.actionButton}
               onPress={() => {
@@ -404,10 +501,9 @@ export default function GymDetailScreen() {
               <Ionicons name="chatbubble-ellipses-outline" size={18} color="white" />
               <Text style={styles.actionButtonText}>Join Chat</Text>
             </Pressable>
-
           </View>
 
-          {/* ⭐ FULL-WIDTH LEADERBOARD BUTTON */}
+          {/* LEADERBOARD */}
           <Pressable
             onPress={() =>
               router.push({
@@ -428,9 +524,68 @@ export default function GymDetailScreen() {
             </View>
           )}
 
+          {/* GYM DESCRIPTION */}
           {gym.description && <Text style={styles.desc}>{gym.description}</Text>}
 
-          {/* OVERALL RATING */}
+          {/* ----------------------------------------------------
+                 GYM OWNERS SECTION
+          ---------------------------------------------------- */}
+          {gymOwners.length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Gym Owner</Text>
+
+              {gymOwners.map(owner => (
+                <Pressable
+                  key={owner.id}
+                  style={styles.profileRow}
+                  onPress={() => router.push(`/profile/${owner.id}`)}
+                >
+                  {owner.avatar_url ? (
+                    <Image source={{ uri: owner.avatar_url }} style={styles.profileAvatar} />
+                  ) : (
+                    <View style={styles.profileAvatarPlaceholder} />
+                  )}
+
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.profileName}>{owner.username}</Text>
+                    {renderRoleBadge(owner.role)}
+                  </View>
+                </Pressable>
+              ))}
+            </View>
+          )}
+
+          {/* ----------------------------------------------------
+                PTs AT THIS GYM SECTION
+          ---------------------------------------------------- */}
+          {pts.length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Personal Trainers</Text>
+
+              {pts.map(pt => (
+                <Pressable
+                  key={pt.id}
+                  style={styles.profileRow}
+                  onPress={() => router.push(`/profile/${pt.id}`)}
+                >
+                  {pt.avatar_url ? (
+                    <Image source={{ uri: pt.avatar_url }} style={styles.profileAvatar} />
+                  ) : (
+                    <View style={styles.profileAvatarPlaceholder} />
+                  )}
+
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.profileName}>{pt.username}</Text>
+                    {renderRoleBadge(pt.role)}
+                  </View>
+                </Pressable>
+              ))}
+            </View>
+          )}
+
+          {/* ----------------------------------------------------
+                OVERALL RATING
+          ---------------------------------------------------- */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Overall rating</Text>
             {averageRating != null ? (
@@ -442,29 +597,42 @@ export default function GymDetailScreen() {
             )}
           </View>
 
-          {/* DISCIPLINES */}
+          {/* ----------------------------------------------------
+                DISCIPLINE RATINGS
+          ---------------------------------------------------- */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Discipline ratings</Text>
             {Object.values(discipline).every(d => d.count === 0) ? (
               <Text style={styles.muted}>No discipline ratings</Text>
             ) : (
               <View style={styles.disciplineList}>
-                {Object.entries(discipline).map(([key, v]) =>
-                  v.count > 0 ? (
-                    <Text key={key} style={styles.disciplineText}>
-                      {DISCIPLINE_META[key as DisciplineKey].icon}{" "}
-                      {DISCIPLINE_META[key as DisciplineKey].label}:{" "}
-                      {v.avg?.toFixed(1)}★ ({v.count})
-                    </Text>
-                  ) : null
+                {(Object.entries(discipline) as [DisciplineKey, DisciplineSummary][]).map(
+                  ([key, v]) =>
+                    v.count > 0 && (
+                      <Text key={key} style={styles.disciplineText}>
+                        {DISCIPLINE_META[key].icon} {DISCIPLINE_META[key].label}:{" "}
+                        {v.avg?.toFixed(1)}★ ({v.count})
+                      </Text>
+                    )
                 )}
               </View>
             )}
           </View>
 
-          {/* ADD REVIEW */}
+          {/* ----------------------------------------------------
+                ADD REVIEW
+          ---------------------------------------------------- */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Add your review</Text>
+
+            <Text style={styles.starLabel}>Write your comment below</Text>
+            <TextInput
+              placeholder="Share your thoughts..."
+              value={newComment}
+              onChangeText={setNewComment}
+              style={styles.input}
+              multiline
+            />
 
             {starsRow("Overall", newRating, setNewRating)}
             {starsRow("Bodybuilding", newBodybuildingRating, setNewBodybuildingRating)}
@@ -473,13 +641,11 @@ export default function GymDetailScreen() {
             {starsRow("Strongman", newStrongmanRating, setNewStrongmanRating)}
             {starsRow("Classes", newClassesRating, setNewClassesRating)}
 
-            <TextInput
-              placeholder="Write a comment (optional)"
-              value={newComment}
-              onChangeText={setNewComment}
-              style={styles.input}
-              multiline
-            />
+            {starsRow("Crossfit", newCrossfitRating, setNewCrossfitRating)}
+            {starsRow("Boxing", newBoxingRating, setNewBoxingRating)}
+            {starsRow("Martial Arts", newMartialArtsRating, setNewMartialArtsRating)}
+            {starsRow("Yoga", newYogaRating, setNewYogaRating)}
+            {starsRow("Pilates", newPilatesRating, setNewPilatesRating)}
 
             <Pressable
               onPress={handleSubmitReview}
@@ -491,7 +657,9 @@ export default function GymDetailScreen() {
             </Pressable>
           </View>
 
-          {/* REVIEWS */}
+          {/* ----------------------------------------------------
+                REVIEWS LIST
+          ---------------------------------------------------- */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Reviews</Text>
 
@@ -501,16 +669,16 @@ export default function GymDetailScreen() {
               <>
                 {displayedReviews.map(r => (
                   <View key={r.id} style={styles.reviewCard}>
-
                     <View style={styles.reviewHeaderRow}>
                       <Pressable
                         style={styles.reviewUserRow}
-                        onPress={() =>
-                          r.user_id && router.push(`/profile/${r.user_id}`)
-                        }
+                        onPress={() => r.user_id && router.push(`/profile/${r.user_id}`)}
                       >
                         {r.avatar_url ? (
-                          <Image source={{ uri: r.avatar_url }} style={styles.reviewAvatar} />
+                          <Image
+                            source={{ uri: r.avatar_url }}
+                            style={styles.reviewAvatar}
+                          />
                         ) : (
                           <View style={styles.reviewAvatarPlaceholder} />
                         )}
@@ -529,7 +697,9 @@ export default function GymDetailScreen() {
                       {"★".repeat(r.rating ?? 0)}
                     </Text>
 
-                    {r.comment && <Text style={styles.reviewComment}>{r.comment}</Text>}
+                    {r.comment && (
+                      <Text style={styles.reviewComment}>{r.comment}</Text>
+                    )}
 
                     <View style={styles.reviewCategories}>
                       {r.bodybuilding_rating && (
@@ -547,8 +717,22 @@ export default function GymDetailScreen() {
                       {r.classes_rating && (
                         <Text>📅 Classes: {"★".repeat(r.classes_rating)}</Text>
                       )}
+                      {r.crossfit_rating && (
+                        <Text>🔥 Crossfit: {"★".repeat(r.crossfit_rating)}</Text>
+                      )}
+                      {r.boxing_rating && (
+                        <Text>🥊 Boxing: {"★".repeat(r.boxing_rating)}</Text>
+                      )}
+                      {r.martial_arts_rating && (
+                        <Text>🥋 Martial Arts: {"★".repeat(r.martial_arts_rating)}</Text>
+                      )}
+                      {r.yoga_rating && (
+                        <Text>🧘 Yoga: {"★".repeat(r.yoga_rating)}</Text>
+                      )}
+                      {r.pilates_rating && (
+                        <Text>🪷 Pilates: {"★".repeat(r.pilates_rating)}</Text>
+                      )}
                     </View>
-
                   </View>
                 ))}
 
@@ -567,7 +751,6 @@ export default function GymDetailScreen() {
               </>
             )}
           </View>
-
         </ScrollView>
       )}
     </>
@@ -675,6 +858,53 @@ const styles = StyleSheet.create({
   muted: { opacity: 0.6, color: TGB_NAVY },
   ratingText: { fontSize: 16, fontWeight: "700", color: TGB_NAVY },
 
+  // Profiles list (Owners & PTs)
+  profileRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+  },
+
+  profileAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
+  profileAvatarPlaceholder: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#ccc",
+  },
+
+  profileName: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: TGB_NAVY,
+  },
+
+  roleBadgeSmall: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 2,
+    backgroundColor: "#eee",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    alignSelf: "flex-start",
+  },
+  roleBadgeIcon: {
+    fontSize: 13,
+  },
+  roleBadgeLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: TGB_NAVY,
+  },
+
   starRow: { marginTop: 10 },
   starLabel: { fontSize: 14, fontWeight: "600", marginBottom: 4, color: TGB_NAVY },
   starRowStars: { flexDirection: "row", gap: 4 },
@@ -713,6 +943,7 @@ const styles = StyleSheet.create({
     gap: 4,
     backgroundColor: "#fff",
   },
+
   reviewHeaderRow: {
     flexDirection: "row",
     justifyContent: "space-between",

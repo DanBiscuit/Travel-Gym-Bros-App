@@ -1,4 +1,3 @@
-// app/profile/[id].tsx
 // @ts-nocheck
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
@@ -31,10 +30,25 @@ type Badge = {
   rank: number;
 };
 
+// ⭐ SAME BADGE MAPPING AS CHAT
+const getRoleBadge = (role: string) => {
+  switch (role) {
+    case "admin":
+      return "🛡"; // shield
+    case "moderator":
+      return "🔧"; // wrench
+    case "pt":
+      return "🏋️"; // PT dumbbell
+    case "gym":
+      return "🏢"; // gym building
+    default:
+      return null;
+  }
+};
+
 export default function PublicProfileScreen() {
   const { id } = useLocalSearchParams();
   const profileId = Array.isArray(id) ? id[0] : id;
-
   const router = useRouter();
 
   const [loading, setLoading] = useState(true);
@@ -45,8 +59,10 @@ export default function PublicProfileScreen() {
   const [allBadges, setAllBadges] = useState<Badge[]>([]);
   const [highestBadge, setHighestBadge] = useState<Badge | null>(null);
 
+  const [roleIcon, setRoleIcon] = useState<string | null>(null);
+
   // --------------------------------------------------------------------
-  // LOAD PROFILE + REVIEWS + BADGES
+  // LOAD PROFILE + ROLE + REVIEWS + BADGES
   // --------------------------------------------------------------------
   useEffect(() => {
     if (!profileId) return;
@@ -58,12 +74,17 @@ export default function PublicProfileScreen() {
       const { data: prof } = await supabase
         .from("profiles")
         .select(
-          "username, avatar_url, training_focus, squat_pb, bench_pb, deadlift_pb"
+          "username, avatar_url, role, training_focus, squat_pb, bench_pb, deadlift_pb"
         )
         .eq("id", profileId)
         .maybeSingle();
 
       setProfile(prof ?? null);
+
+      // Role icon
+      if (prof?.role) {
+        setRoleIcon(getRoleBadge(prof.role));
+      }
 
       // ---- LOAD REVIEWS ----
       const { data: rev } = await supabase
@@ -86,12 +107,12 @@ export default function PublicProfileScreen() {
         gyms?.forEach((g) => (nameMap[g.id] = g.name ?? null));
       }
 
-      const mapped = raw.map((r) => ({
-        ...r,
-        gym_name: nameMap[r.gym_id] ?? null,
-      }));
-
-      setReviews(mapped);
+      setReviews(
+        raw.map((r) => ({
+          ...r,
+          gym_name: nameMap[r.gym_id] ?? null,
+        }))
+      );
 
       // ---- LOAD BADGES ----
       const { data: badgeData } = await supabase
@@ -108,22 +129,19 @@ export default function PublicProfileScreen() {
   }, [profileId]);
 
   // --------------------------------------------------------------------
-  // BADGE SELECTION (MATCHES PRIVATE PROFILE EXACTLY)
+  // SELECT HIGHEST BADGE
   // --------------------------------------------------------------------
   useEffect(() => {
     if (!allBadges.length) return;
 
     const reviewCount = reviews.length;
 
-    // Sort highest rank first
     const sorted = [...allBadges].sort((a, b) => (b.rank ?? 0) - (a.rank ?? 0));
 
-    // Highest badge they qualify for
     let unlocked = sorted.find(
       (b) => reviewCount >= Number(b.requirement)
     );
 
-    // Fallback = requirement 0 badge
     if (!unlocked) {
       unlocked = sorted.find((b) => Number(b.requirement) === 0) || null;
     }
@@ -132,7 +150,8 @@ export default function PublicProfileScreen() {
   }, [reviews, allBadges]);
 
   // --------------------------------------------------------------------
-
+  // LOADING / NOT FOUND STATES
+  // --------------------------------------------------------------------
   if (loading) {
     return (
       <View style={styles.center}>
@@ -161,14 +180,12 @@ export default function PublicProfileScreen() {
       />
 
       <ScrollView contentContainerStyle={styles.container}>
-        {/* Avatar + Username */}
+        {/* HEADER */}
         <View style={styles.header}>
+          {/* Avatar */}
           <View style={styles.avatarWrap}>
             {profile.avatar_url ? (
-              <Image
-                source={{ uri: profile.avatar_url }}
-                style={styles.avatar}
-              />
+              <Image source={{ uri: profile.avatar_url }} style={styles.avatar} />
             ) : (
               <View style={styles.avatarPlaceholder}>
                 <Text style={styles.avatarText}>?</Text>
@@ -176,11 +193,24 @@ export default function PublicProfileScreen() {
             )}
           </View>
 
-          <Text style={styles.username}>
-            {profile.username || "Unknown User"}
-          </Text>
+          {/* Username + Role Badge + Role Name */}
+          <View style={{ alignItems: "center", marginBottom: 6 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <Text style={styles.username}>
+                {profile.username || "Unknown User"}
+              </Text>
 
-          {/* ⭐ HIGHEST BADGE (PUBLIC) */}
+              {roleIcon && <Text style={styles.roleBadge}>{roleIcon}</Text>}
+            </View>
+
+            {profile.role && (
+              <Text style={styles.roleNameText}>
+                {profile.role.charAt(0).toUpperCase() + profile.role.slice(1)}
+              </Text>
+            )}
+          </View>
+
+          {/* Highest Badge */}
           {highestBadge && (
             <View style={{ alignItems: "center", marginTop: 8 }}>
               <Text style={styles.badgeIcon}>{highestBadge.icon}</Text>
@@ -188,7 +218,7 @@ export default function PublicProfileScreen() {
             </View>
           )}
 
-          {/* 🏋️‍♂️ Gyms visited */}
+          {/* Gyms visited */}
           <Text style={{ marginTop: 6, fontSize: 14, opacity: 0.7 }}>
             Gyms visited: {new Set(reviews.map((r) => r.gym_id)).size}
           </Text>
@@ -233,15 +263,11 @@ export default function PublicProfileScreen() {
                 })
               }
             >
-              <Text style={styles.reviewGymName}>
-                {r.gym_name || "Unknown Gym"}
-              </Text>
-              <Text style={styles.reviewStars}>
-                {"★".repeat(r.rating)}
-              </Text>
-              {r.comment ? (
-                <Text style={styles.reviewComment}>{r.comment}</Text>
-              ) : null}
+              <Text style={styles.reviewGymName}>{r.gym_name || "Unknown Gym"}</Text>
+              <Text style={styles.reviewStars}>{"★".repeat(r.rating)}</Text>
+
+              {r.comment && <Text style={styles.reviewComment}>{r.comment}</Text>}
+
               <Text style={styles.reviewMeta}>
                 {new Date(r.created_at).toLocaleDateString()}
               </Text>
@@ -287,7 +313,20 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   avatarText: { fontSize: 40, color: "#666" },
+
   username: { fontSize: 22, fontWeight: "700" },
+
+  roleBadge: {
+    fontSize: 22,
+  },
+
+  roleNameText: {
+    marginTop: 2,
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#555",
+    textTransform: "capitalize",
+  },
 
   badgeIcon: {
     fontSize: 30,

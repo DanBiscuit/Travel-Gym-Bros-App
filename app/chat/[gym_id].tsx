@@ -3,17 +3,17 @@ import * as Clipboard from "expo-clipboard";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import {
-    ActivityIndicator,
-    Image,
-    KeyboardAvoidingView,
-    Modal,
-    Platform,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
+  ActivityIndicator,
+  Image,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
@@ -30,6 +30,7 @@ type Message = {
   user_id: string;
   username: string | null;
   avatar_url: string | null;
+  role: string | null;
   reply_to?: string | null;
   reply_preview?: string | null;
   reply_username?: string | null;
@@ -46,6 +47,8 @@ export default function GymChatRoom() {
   const [input, setInput] = useState("");
 
   const [currentUserId, setCurrentUserId] = useState("");
+  const [currentUserRole, setCurrentUserRole] = useState<string>("user");
+
   const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
   const [menuVisible, setMenuVisible] = useState(false);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
@@ -53,7 +56,6 @@ export default function GymChatRoom() {
 
   const scrollRef = useRef<ScrollView>(null);
 
-  // ⭐ NEW: Auto scroll helper (does not affect layout)
   const scrollToBottom = () => {
     setTimeout(() => {
       scrollRef.current?.scrollToEnd({ animated: false });
@@ -62,34 +64,34 @@ export default function GymChatRoom() {
 
   const formatTimestamp = (iso: string) => {
     const date = new Date(iso);
-    const now = new Date();
-
-    if (date.toDateString() === now.toDateString()) {
-      return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    }
-
-    const y = new Date();
-    y.setDate(now.getDate() - 1);
-
-    if (date.toDateString() === y.toDateString()) {
-      return "Yesterday · " + date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    }
-
-    return (
-      date.toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" }) +
-      " · " +
-      date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-    );
+    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   };
 
+  // --------------------------------------------
+  // LOAD AUTH USER + ROLE
+  // --------------------------------------------
   useEffect(() => {
     const loadUser = async () => {
       const { data: auth } = await supabase.auth.getUser();
-      setCurrentUserId(auth?.user?.id ?? "");
+      const id = auth?.user?.id ?? "";
+      setCurrentUserId(id);
+
+      if (id) {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("id", id)
+          .maybeSingle();
+
+        setCurrentUserRole(profile?.role ?? "user");
+      }
     };
     loadUser();
   }, []);
 
+  // --------------------------------------------
+  // LOAD CHAT HISTORY
+  // --------------------------------------------
   useEffect(() => {
     const loadChat = async () => {
       if (!gymId) return;
@@ -114,13 +116,14 @@ export default function GymChatRoom() {
       if (userIds.length > 0) {
         const { data: profiles } = await supabase
           .from("profiles")
-          .select("id, username, avatar_url")
+          .select("id, username, avatar_url, role")
           .in("id", userIds);
 
         profiles?.forEach((p) => {
           profileLookup[p.id] = {
             username: p.username,
             avatar_url: p.avatar_url,
+            role: p.role,
           };
         });
       }
@@ -130,18 +133,20 @@ export default function GymChatRoom() {
           ...m,
           username: profileLookup[m.user_id]?.username ?? "User",
           avatar_url: profileLookup[m.user_id]?.avatar_url ?? null,
+          role: profileLookup[m.user_id]?.role ?? "user",
         }))
       );
 
       setLoading(false);
-
-      // ⭐ NEW: Auto scroll on initial load
       scrollToBottom();
     };
 
     loadChat();
   }, [gymId]);
 
+  // --------------------------------------------
+  // REAL-TIME LISTENER
+  // --------------------------------------------
   useEffect(() => {
     const channel = supabase
       .channel(`gym-chat-${gymId}`)
@@ -157,22 +162,20 @@ export default function GymChatRoom() {
 
             const { data: profile } = await supabase
               .from("profiles")
-              .select("username, avatar_url")
+              .select("username, avatar_url, role")
               .eq("id", msg.user_id)
               .maybeSingle();
 
-            setMessages((prev) => {
-              return [
-                ...prev,
-                {
-                  ...msg,
-                  username: profile?.username ?? "User",
-                  avatar_url: profile?.avatar_url ?? null,
-                },
-              ];
-            });
+            setMessages((prev) => [
+              ...prev,
+              {
+                ...msg,
+                username: profile?.username ?? "User",
+                avatar_url: profile?.avatar_url ?? null,
+                role: profile?.role ?? "user",
+              },
+            ]);
 
-            // ⭐ Auto scroll when new messages arrive
             scrollToBottom();
           }
 
@@ -188,9 +191,7 @@ export default function GymChatRoom() {
 
           if (payload.eventType === "DELETE") {
             const id = payload.old?.id;
-            if (id) {
-              setMessages((prev) => prev.filter((m) => m.id !== id));
-            }
+            setMessages((prev) => prev.filter((m) => m.id !== id));
           }
         }
       )
@@ -199,12 +200,16 @@ export default function GymChatRoom() {
     return () => supabase.removeChannel(channel);
   }, [gymId]);
 
+  // --------------------------------------------
+  // SEND MESSAGE
+  // --------------------------------------------
   const sendMessage = async () => {
     if (!input.trim()) return;
 
     const { data: auth } = await supabase.auth.getUser();
     if (!auth?.user) return;
 
+    // editing existing message
     if (editingMessageId) {
       await supabase
         .from("gym_chat_messages")
@@ -229,6 +234,24 @@ export default function GymChatRoom() {
     setReplyTo(null);
   };
 
+  // --------------------------------------------
+  // MODERATION LOGIC
+  // --------------------------------------------
+  const userCanDelete = (msg: Message) => {
+    if (currentUserRole === "admin") return true;
+    if (currentUserRole === "moderator") return true;
+    return msg.user_id === currentUserId;
+  };
+
+  const renderRoleBadge = (role: string | null) => {
+    if (!role) return "";
+    if (role === "admin") return " 🛡️";
+    if (role === "moderator") return " 🔧";
+    if (role === "pt") return " 💪";
+    if (role === "gym") return " 🏛️";
+    return "";
+  };
+
   const openMenu = (msg: Message) => {
     setSelectedMessage(msg);
     setMenuVisible(true);
@@ -239,9 +262,7 @@ export default function GymChatRoom() {
   };
 
   const startReply = () => {
-    if (selectedMessage) {
-      setReplyTo(selectedMessage);
-    }
+    if (selectedMessage) setReplyTo(selectedMessage);
     setMenuVisible(false);
   };
 
@@ -260,34 +281,13 @@ export default function GymChatRoom() {
     setMenuVisible(false);
   };
 
-  const renderDateHeader = (current: Message, previous?: Message) => {
-    const c = new Date(current.created_at).toDateString();
-    const p = previous ? new Date(previous.created_at).toDateString() : null;
-
-    if (c === p) return null;
-
-    const now = new Date();
-    const y = new Date();
-    y.setDate(now.getDate() - 1);
-
-    let label =
-      c === now.toDateString()
-        ? "Today"
-        : c === y.toDateString()
-        ? "Yesterday"
-        : c;
-
-    return (
-      <View style={styles.dateHeader}>
-        <Text style={styles.dateHeaderText}>{label}</Text>
-      </View>
-    );
-  };
-
+  // --------------------------------------------
+  // RENDER CHAT UI
+  // --------------------------------------------
   if (loading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator color={PURPLE} size="large" />
+        <ActivityIndicator color={ PURPLE } size="large" />
       </View>
     );
   }
@@ -313,12 +313,11 @@ export default function GymChatRoom() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {messages.map((item, index) => (
+          {messages.map((item) => (
             <View key={item.id}>
-              {renderDateHeader(item, messages[index - 1])}
-
               <Pressable onLongPress={() => openMenu(item)}>
                 <View style={styles.msgRow}>
+                  {/* AVATAR */}
                   <Pressable
                     onPress={() => router.push(`/profile/${item.user_id}`)}
                   >
@@ -332,11 +331,15 @@ export default function GymChatRoom() {
                     )}
                   </Pressable>
 
+                  {/* MESSAGE BUBBLE */}
                   <View style={styles.msgBubble}>
                     <Pressable
                       onPress={() => router.push(`/profile/${item.user_id}`)}
                     >
-                      <Text style={styles.msgUser}>{item.username}</Text>
+                      <Text style={styles.msgUser}>
+                        {item.username}
+                        {renderRoleBadge(item.role)}
+                      </Text>
                     </Pressable>
 
                     {item.reply_preview && (
@@ -377,9 +380,7 @@ export default function GymChatRoom() {
           <View style={styles.inputBar}>
             <TextInput
               style={styles.input}
-              placeholder={
-                editingMessageId ? "Edit message..." : "Type a message..."
-              }
+              placeholder={editingMessageId ? "Edit message..." : "Type a message..."}
               placeholderTextColor={SOFT_NAVY}
               value={input}
               onChangeText={setInput}
@@ -395,7 +396,7 @@ export default function GymChatRoom() {
         </View>
       </KeyboardAvoidingView>
 
-      {/* LONG PRESS MENU */}
+      {/* MENU */}
       <Modal transparent visible={menuVisible} animationType="fade">
         <Pressable
           style={styles.menuOverlay}
@@ -410,7 +411,8 @@ export default function GymChatRoom() {
               <Text style={styles.menuText}>Copy</Text>
             </Pressable>
 
-            {selectedMessage?.user_id === currentUserId && (
+            {/* Admin/Mod or Owner */}
+            {selectedMessage && userCanDelete(selectedMessage) && (
               <>
                 <Pressable onPress={startEdit} style={styles.menuItem}>
                   <Text style={styles.menuText}>Edit</Text>
@@ -418,7 +420,6 @@ export default function GymChatRoom() {
 
                 <Pressable
                   onPress={() => {
-                    if (!selectedMessage) return;
                     deleteMessage(selectedMessage.id);
                     setMenuVisible(false);
                   }}
@@ -446,20 +447,6 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
     borderTopWidth: 1,
     borderColor: "#eee",
-  },
-
-  dateHeader: {
-    alignSelf: "center",
-    backgroundColor: "#eee",
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 20,
-    marginVertical: 6,
-  },
-  dateHeaderText: {
-    fontSize: 12,
-    color: SOFT_NAVY,
-    fontWeight: "600",
   },
 
   msgRow: {
@@ -492,15 +479,18 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     maxWidth: "78%",
   },
+
   msgUser: {
     fontWeight: "700",
     marginBottom: 2,
     color: NAVY,
   },
+
   msgText: {
     fontSize: 15,
     color: NAVY,
   },
+
   msgTime: {
     fontSize: 12,
     opacity: 0.5,
@@ -564,7 +554,7 @@ const styles = StyleSheet.create({
   sendButton: {
     backgroundColor: PURPLE,
     paddingHorizontal: 18,
-    height: 42,              // fixed height so it never shrinks
+    height: 42,
     justifyContent: "center",
     alignItems: "center",
     borderRadius: 10,

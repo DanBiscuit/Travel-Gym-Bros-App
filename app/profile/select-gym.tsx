@@ -2,15 +2,16 @@
 // @ts-nocheck
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Pressable,
-    ScrollView,
-    Text,
-    TextInput,
-    View,
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
 import { supabase } from "../../lib/supabase";
 
@@ -18,16 +19,20 @@ const PURPLE = "#5A3E8C";
 const NAVY = "#1D3D47";
 
 export default function SelectGymScreen() {
+  const router = useRouter();
+  const { from } = useLocalSearchParams(); 
+  // from = "owned" OR "pt" OR undefined (home gym)
+
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [savingId, setSavingId] = useState(null);
 
-  // --------------------------------------------------------
-  // LOAD USER
-  // --------------------------------------------------------
   const [user, setUser] = useState(null);
 
+  // --------------------------------------------------------
+  // LOAD AUTH USER
+  // --------------------------------------------------------
   useEffect(() => {
     const load = async () => {
       const { data } = await supabase.auth.getUser();
@@ -61,23 +66,43 @@ export default function SelectGymScreen() {
   };
 
   // --------------------------------------------------------
-  // SAVE HOME GYM TO SUPABASE
+  // SAVE FUNCTION (dynamic by role)
   // --------------------------------------------------------
-  const saveHomeGym = async (gymId, gymName) => {
+  const saveGymSelection = async (gymId, gymName) => {
     try {
+      if (!user) return;
+
       setSavingId(gymId);
+
+      let updateField = {};
+
+      // ⭐ HOME GYM (default)
+      if (!from) {
+        updateField = { home_gym_id: gymId };
+        await AsyncStorage.setItem("selectedHomeGymId", gymId);
+        await AsyncStorage.setItem("selectedHomeGymName", gymName);
+      }
+
+      // ⭐ OWNED GYM (GYM ROLE)
+      if (from === "owned") {
+        updateField = { gym_owner_of: gymId };
+      }
+
+      // ⭐ PT GYM (PT ROLE)
+      if (from === "pt") {
+        updateField = { pt_at_gym: gymId };
+      }
 
       const { error } = await supabase
         .from("profiles")
-        .update({ home_gym_id: gymId })
+        .update(updateField)
         .eq("id", user.id);
 
       if (error) throw error;
 
-      await AsyncStorage.setItem("selectedHomeGymId", gymId);
-      await AsyncStorage.setItem("selectedHomeGymName", gymName);
+      Alert.alert("Saved!", `${gymName} selected successfully.`);
 
-      Alert.alert("Saved!", `${gymName} set as your home gym.`);
+      router.back();
     } catch (err) {
       Alert.alert("Error", err.message);
     } finally {
@@ -91,8 +116,13 @@ export default function SelectGymScreen() {
   return (
     <View style={{ flex: 1, paddingTop: 50, paddingHorizontal: 16 }}>
       <Text style={{ fontSize: 22, fontWeight: "700", color: NAVY }}>
-        Search Home Gym
+        {from === "owned"
+          ? "Select Owned Gym"
+          : from === "pt"
+          ? "Select PT Gym"
+          : "Search Home Gym"}
       </Text>
+
       <Text style={{ marginTop: 6, color: NAVY, opacity: 0.6 }}>
         Type at least 2 characters to search gyms.
       </Text>
@@ -127,7 +157,7 @@ export default function SelectGymScreen() {
         {results.map((g) => (
           <Pressable
             key={g.id}
-            onPress={() => saveHomeGym(g.id, g.name)}
+            onPress={() => saveGymSelection(g.id, g.name)}
             style={{
               paddingVertical: 16,
               borderBottomWidth: 1,
@@ -144,7 +174,7 @@ export default function SelectGymScreen() {
               </Text>
             ) : (
               <Text style={{ fontSize: 13, color: PURPLE, marginTop: 3 }}>
-                Tap to set as home gym
+                Tap to select
               </Text>
             )}
           </Pressable>
