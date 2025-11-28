@@ -14,6 +14,8 @@ const BRIGHT_PURPLE = "#bf0ff0ff";
 const NAVY = "#1D3D47";
 const SOFT_NAVY = "#445A65";
 
+const FILTER_PANEL_OPEN_OFFSET = 260;
+
 type Gym = {
   id: string;
   name: string;
@@ -52,17 +54,6 @@ export default function HomeTab() {
   const [gyms, setGyms] = useState<Gym[]>([]);
   const [ratings, setRatings] = useState<Record<string, GymRatings>>({});
   const [userLocation, setUserLocation] = useState(null);
-
-  // Filters
-  const [filter, setFilter] = useState<FilterKey>("all");
-  const [minRating, setMinRating] = useState<number | null>(null);
-  const [search, setSearch] = useState<string>("");
-
-  const [pendingFilter, setPendingFilter] = useState<FilterKey>("all");
-  const [pendingMinRating, setPendingMinRating] = useState<number | null>(null);
-  const [pendingSearch, setPendingSearch] = useState<string>("");
-  const [showFilterPanel, setShowFilterPanel] = useState(false);
-
   const [region, setRegion] = useState({
     latitude: 51.5072,
     longitude: -0.1276,
@@ -70,7 +61,32 @@ export default function HomeTab() {
     longitudeDelta: 0.08,
   });
 
-  // ⭐ Load user location
+  const [filter, setFilter] = useState<FilterKey>("all");
+  const [minRating, setMinRating] = useState<number | null>(null);
+  const [search, setSearch] = useState("");
+
+  const [pendingFilter, setPendingFilter] = useState<FilterKey>("all");
+  const [pendingMinRating, setPendingMinRating] = useState<number | null>(null);
+  const [pendingSearch, setPendingSearch] = useState("");
+  const [showFilterPanel, setShowFilterPanel] = useState(false);
+
+  const ZOOM_LIMITS = [
+    { maxDelta: 4, limit: 0 },
+    { maxDelta: 2, limit: 5 },
+    { maxDelta: 1, limit: 10 },
+    { maxDelta: 0.5, limit: 10 },
+    { maxDelta: 0.25, limit: 10 },
+    { maxDelta: 0.1, limit: 10 },
+  ];
+
+  const getLimitFromRegion = (r) => {
+    for (const z of ZOOM_LIMITS) {
+      if (r.latitudeDelta >= z.maxDelta) return z.limit;
+    }
+    return 20;
+  };
+
+  // Load user location
   useEffect(() => {
     const loadLocation = async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -89,23 +105,15 @@ export default function HomeTab() {
         longitudeDelta: 0.06,
       });
     };
-
     loadLocation();
   }, []);
 
-  // Load gyms + ratings
+  // Load ratings
   useFocusEffect(
     useCallback(() => {
       let isActive = true;
 
-      const loadData = async () => {
-        const { data: gymData } = await supabase
-          .from("gyms")
-          .select("id,name,latitude,longitude,description")
-          .limit(300);
-
-        if (isActive) setGyms(gymData ?? []);
-
+      const loadRatings = async () => {
         const { data: reviewData } = await supabase
           .from("reviews")
           .select(
@@ -136,31 +144,72 @@ export default function HomeTab() {
         if (isActive) setRatings(map);
       };
 
-      loadData();
+      loadRatings();
       return () => (isActive = false);
     }, [])
   );
 
+  // Load gyms for region
+  const loadGymsForRegion = async (r) => {
+    const minLat = r.latitude - r.latitudeDelta / 2;
+    const maxLat = r.latitude + r.latitudeDelta / 2;
+    const minLng = r.longitude - r.longitudeDelta / 2;
+    const maxLng = r.longitude + r.longitudeDelta / 2;
+
+    const limit = getLimitFromRegion(r);
+
+    const { data } = await supabase
+      .from("gyms")
+      .select("id,name,latitude,longitude,description")
+      .gte("latitude", minLat)
+      .lte("latitude", maxLat)
+      .gte("longitude", minLng)
+      .lte("longitude", maxLng);
+
+    let result = data ?? [];
+
+    result.sort((a, b) => {
+      const da =
+        (a.latitude - r.latitude) ** 2 + (a.longitude - r.longitude) ** 2;
+      const db =
+        (b.latitude - r.latitude) ** 2 + (b.longitude - r.longitude) ** 2;
+      return da - db;
+    });
+
+    result = result.slice(0, limit);
+    setGyms(result);
+  };
+
+  const handleRegionChangeComplete = (r) => {
+    setRegion(r);
+    loadGymsForRegion(r);
+  };
+
+  // Filter helpers
   const getSummaryForFilter = (summary) => {
     if (!summary) return { avg: undefined, count: undefined };
-
     switch (filter) {
-      case "bodybuilding": return { avg: summary.bodybuildingAvg, count: summary.bodybuildingCount };
-      case "powerlifting": return { avg: summary.powerliftingAvg, count: summary.powerliftingCount };
-      case "hyrox": return { avg: summary.hyroxAvg, count: summary.hyroxCount };
-      case "strongman": return { avg: summary.strongmanAvg, count: summary.strongmanCount };
-      case "classes": return { avg: summary.classesAvg, count: summary.classesCount };
-      default: return { avg: summary.overallAvg, count: summary.overallCount };
+      case "bodybuilding":
+        return { avg: summary.bodybuildingAvg, count: summary.bodybuildingCount };
+      case "powerlifting":
+        return { avg: summary.powerliftingAvg, count: summary.powerliftingCount };
+      case "hyrox":
+        return { avg: summary.hyroxAvg, count: summary.hyroxCount };
+      case "strongman":
+        return { avg: summary.strongmanAvg, count: summary.strongmanCount };
+      case "classes":
+        return { avg: summary.classesAvg, count: summary.classesCount };
+      default:
+        return { avg: summary.overallAvg, count: summary.overallCount };
     }
   };
 
   const shouldShowGym = (g) => {
     const summary = ratings[g.id];
 
-    // Search filter
-    if (search && !g.name.toLowerCase().includes(search.toLowerCase())) return false;
+    if (search && !g.name.toLowerCase().includes(search.toLowerCase()))
+      return false;
 
-    // Discipline filter
     if (filter !== "all") {
       const needed = {
         bodybuilding: "bodybuildingCount",
@@ -169,10 +218,10 @@ export default function HomeTab() {
         strongman: "strongmanCount",
         classes: "classesCount",
       }[filter];
+
       if (!summary?.[needed]) return false;
     }
 
-    // Rating filter
     const { avg } = getSummaryForFilter(summary);
     if (minRating && (!avg || avg < minRating)) return false;
 
@@ -184,21 +233,89 @@ export default function HomeTab() {
     return avg ? `${avg.toFixed(1)}★` : "–";
   };
 
+  // ------------------------------------------------------
+  // RENDER UI
+  // ------------------------------------------------------
   return (
     <View style={styles.container}>
-      
+
+      {/* SEARCH BAR */}
+      <View style={styles.topSearchWrap}>
+        <Ionicons name="search" size={18} color={NAVY} style={{ marginRight: 6 }} />
+        <TextInput
+          placeholder="Search location..."
+          placeholderTextColor={SOFT_NAVY}
+          style={styles.topSearchInput}
+          onSubmitEditing={async (e) => {
+            const query = e.nativeEvent.text;
+            if (!query) return;
+
+            try {
+              const results = await Location.geocodeAsync(query);
+              if (results.length > 0) {
+                const loc = results[0];
+                mapRef.current?.animateToRegion(
+                  {
+                    latitude: loc.latitude,
+                    longitude: loc.longitude,
+                    latitudeDelta: 0.06,
+                    longitudeDelta: 0.06,
+                  },
+                  600
+                );
+              }
+            } catch (err) {
+              console.log("Search error:", err);
+            }
+          }}
+        />
+
+        {/* 📍 recenter button */}
+        {userLocation && (
+          <Pressable
+            onPress={() =>
+              mapRef.current?.animateToRegion(
+                {
+                  latitude: userLocation.latitude,
+                  longitude: userLocation.longitude,
+                  latitudeDelta: 0.05,
+                  longitudeDelta: 0.05,
+                },
+                500
+              )
+            }
+            style={styles.stackedButton}
+          >
+            <Ionicons name="locate-outline" size={22} color={NAVY} />
+          </Pressable>
+        )}
+
+        {/* ⭐ saved gyms */}
+        <Pressable
+          onPress={() => router.push("/saved-gyms")}
+          style={[styles.stackedButton, { marginTop: 110 }]}
+        >
+          <Ionicons name="bookmark-outline" size={22} color={NAVY} />
+        </Pressable>
+      </View>
+
       {/* MAP */}
       <MapView
         ref={mapRef}
         style={styles.map}
         showsUserLocation={true}
         initialRegion={region}
+        onRegionChangeComplete={handleRegionChangeComplete}
       >
-        {gyms.map((g) =>
-          shouldShowGym(g) ? (
+        {gyms
+          .filter((g) => shouldShowGym(g))
+          .map((g) => (
             <Marker
               key={g.id}
-              coordinate={{ latitude: g.latitude, longitude: g.longitude }}
+              coordinate={{
+                latitude: g.latitude,
+                longitude: g.longitude,
+              }}
               title={g.name}
               description={getBubbleText(g)}
               onPress={() => router.push(`/gym/${g.id}`)}
@@ -210,31 +327,10 @@ export default function HomeTab() {
                 <View style={styles.dot} />
               </View>
             </Marker>
-          ) : null
-        )}
+          ))}
       </MapView>
 
-      {/* ⭐ SMALL TARGET BUTTON */}
-      {userLocation && (
-        <Pressable
-          onPress={() =>
-            mapRef.current?.animateToRegion(
-              {
-                latitude: userLocation.latitude,
-                longitude: userLocation.longitude,
-                latitudeDelta: 0.05,
-                longitudeDelta: 0.05,
-              },
-              500
-            )
-          }
-          style={styles.recenterTarget}
-        >
-          <Ionicons name="locate-outline" size={22} color={NAVY} />
-        </Pressable>
-      )}
-
-      {/* ⭐ FILTER BUBBLE — CENTERED */}
+      {/* FILTER SUMMARY */}
       <View style={styles.filterSummaryWrap}>
         <Pressable
           style={styles.filterSummary}
@@ -247,7 +343,8 @@ export default function HomeTab() {
         >
           <Text style={styles.filterSummaryTitle}>Filters</Text>
           <Text style={styles.filterSummaryText}>
-            {filter} · {minRating ? `${minRating}+★` : "Any rating"} · {search || "Any name"}
+            {filter} · {minRating ? `${minRating}+★` : "Any rating"} ·{" "}
+            {search || "Any name"}
           </Text>
         </Pressable>
       </View>
@@ -257,7 +354,6 @@ export default function HomeTab() {
         <View style={styles.filterPanel}>
           <Text style={styles.filterPanelTitle}>Filter gyms</Text>
 
-          {/* ⭐ SEARCH FIRST */}
           <View style={styles.searchContainer}>
             <Text style={styles.searchLabel}>Gym name (optional)</Text>
             <TextInput
@@ -268,32 +364,48 @@ export default function HomeTab() {
             />
           </View>
 
-          {/* ⭐ SECOND: DISCIPLINES */}
           <Text style={styles.filterPanelSubtitle}>Discipline</Text>
           <View style={styles.filterOptions}>
-            {["all", "bodybuilding", "powerlifting", "hyrox", "strongman", "classes"].map((k) => (
-              <Pressable
-                key={k}
-                onPress={() => setPendingFilter(k)}
-                style={[styles.filterRow, pendingFilter === k && styles.filterRowActive]}
-              >
-                <View style={[styles.radioOuter, pendingFilter === k && styles.radioOuterActive]}>
-                  {pendingFilter === k && <View style={styles.radioInner} />}
-                </View>
-                <Text style={styles.filterRowText}>{k}</Text>
-              </Pressable>
-            ))}
+            {["all", "bodybuilding", "powerlifting", "hyrox", "strongman", "classes"].map(
+              (k) => (
+                <Pressable
+                  key={k}
+                  onPress={() => setPendingFilter(k)}
+                  style={[
+                    styles.filterRow,
+                    pendingFilter === k && styles.filterRowActive,
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.radioOuter,
+                      pendingFilter === k && styles.radioOuterActive,
+                    ]}
+                  >
+                    {pendingFilter === k && <View style={styles.radioInner} />}
+                  </View>
+                  <Text style={styles.filterRowText}>{k}</Text>
+                </Pressable>
+              )
+            )}
           </View>
 
-          {/* ⭐ THIRD: MIN RATING */}
           <View style={styles.minRatingContainer}>
             <Text style={styles.minRatingLabel}>Minimum rating</Text>
             <View style={styles.minRatingRow}>
               <Pressable
                 onPress={() => setPendingMinRating(null)}
-                style={[styles.minChip, pendingMinRating == null && styles.minChipActive]}
+                style={[
+                  styles.minChip,
+                  pendingMinRating == null && styles.minChipActive,
+                ]}
               >
-                <Text style={[styles.minChipText, pendingMinRating == null && styles.minChipTextActive]}>
+                <Text
+                  style={[
+                    styles.minChipText,
+                    pendingMinRating == null && styles.minChipTextActive,
+                  ]}
+                >
                   Any
                 </Text>
               </Pressable>
@@ -302,7 +414,10 @@ export default function HomeTab() {
                 <Pressable
                   key={star}
                   onPress={() => setPendingMinRating(star)}
-                  style={[styles.starChip, pendingMinRating === star && styles.starChipActive]}
+                  style={[
+                    styles.starChip,
+                    pendingMinRating === star && styles.starChipActive,
+                  ]}
                 >
                   <Text
                     style={[
@@ -317,7 +432,6 @@ export default function HomeTab() {
             </View>
           </View>
 
-          {/* ACTION BUTTONS */}
           <View style={styles.filterActions}>
             <Pressable
               style={styles.filterClear}
@@ -334,7 +448,10 @@ export default function HomeTab() {
               <Text style={styles.filterClearText}>Clear</Text>
             </Pressable>
 
-            <Pressable style={styles.filterCancel} onPress={() => setShowFilterPanel(false)}>
+            <Pressable
+              style={styles.filterCancel}
+              onPress={() => setShowFilterPanel(false)}
+            >
               <Text style={styles.filterCancelText}>Cancel</Text>
             </Pressable>
 
@@ -357,30 +474,43 @@ export default function HomeTab() {
 }
 
 /* ======================= STYLES ======================= */
-
 const styles = StyleSheet.create({
   container: { flex: 1 },
   map: { flex: 1 },
 
-  // ⭐ SMALL TARGET BUTTON
-  recenterTarget: {
+  topSearchWrap: {
     position: "absolute",
-    bottom: 20,
-    right: 20,
+    top: 20,
+    left: 20,
+    right: 80, // space for stacked buttons
+    backgroundColor: "white",
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    elevation: 6,
+    zIndex: 200,
+  },
+  topSearchInput: {
+    flex: 1,
+    fontSize: 14,
+    color: NAVY,
+  },
+
+  stackedButton: {
+    position: "absolute",
+    right: -60,
     width: 42,
     height: 42,
     borderRadius: 21,
     backgroundColor: "white",
-    alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#000",
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
+    alignItems: "center",
     elevation: 6,
-    zIndex: 50,
+    zIndex: 300,
   },
 
-  // ⭐ MARKERS
   markerWrapper: { alignItems: "center" },
   ratingBubble: {
     backgroundColor: "white",
@@ -390,9 +520,6 @@ const styles = StyleSheet.create({
     minWidth: 32,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#000",
-    shadowOpacity: 0.2,
-    shadowRadius: 2,
     elevation: 3,
   },
   ratingText: { fontSize: 11, fontWeight: "700", color: NAVY },
@@ -404,22 +531,18 @@ const styles = StyleSheet.create({
     marginTop: 3,
   },
 
-  // ⭐ FILTER BUBBLE — CENTERED
   filterSummaryWrap: {
     position: "absolute",
     bottom: 20,
     left: 0,
     right: 0,
-    alignItems: "center",   // ⭐ centers the Filters bubble
+    alignItems: "center",
   },
   filterSummary: {
-    backgroundColor: "rgba(255,255,255,0.95)",
+    backgroundColor: "white",
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 20,
-    shadowColor: "#000",
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
     elevation: 5,
   },
   filterSummaryTitle: {
@@ -434,19 +557,15 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
 
-  // FILTER PANEL
   filterPanel: {
     position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
     padding: 16,
-    backgroundColor: "rgba(255,255,255,0.97)",
+    backgroundColor: "white",
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
-    shadowColor: "#000",
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
     elevation: 8,
   },
   filterPanelTitle: {
@@ -457,31 +576,24 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
 
-  // ⭐ SEARCH FIRST
   searchContainer: { marginBottom: 14 },
-  searchLabel: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: NAVY,
-    marginBottom: 6,
-  },
+  searchLabel: { fontSize: 14, fontWeight: "600", marginBottom: 6, color: NAVY },
   searchInput: {
     borderWidth: 1,
     borderColor: SOFT_NAVY,
     borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    padding: 10,
     backgroundColor: "white",
     color: NAVY,
   },
 
-  // ⭐ DISCIPLINES
   filterPanelSubtitle: {
     fontSize: 14,
     fontWeight: "600",
     color: NAVY,
     marginBottom: 6,
   },
+
   filterOptions: { gap: 6, marginBottom: 16 },
   filterRow: {
     flexDirection: "row",
@@ -490,6 +602,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   filterRowActive: { backgroundColor: "#EDE6FA" },
+
   radioOuter: {
     width: 18,
     height: 18,
@@ -509,26 +622,17 @@ const styles = StyleSheet.create({
   },
   filterRowText: { fontSize: 14, color: NAVY },
 
-  // ⭐ MIN RATING
   minRatingContainer: { marginBottom: 14 },
-  minRatingLabel: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: NAVY,
-    marginBottom: 6,
-  },
-  minRatingRow: {
-    flexDirection: "row",
-    gap: 6,
-    flexWrap: "wrap",
-  },
+  minRatingLabel: { fontSize: 14, fontWeight: "600", color: NAVY },
+  minRatingRow: { flexDirection: "row", gap: 6, flexWrap: "wrap" },
+
   minChip: {
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 14,
-    borderWidth: 1,
-    borderColor: SOFT_NAVY,
     backgroundColor: "white",
+    borderColor: SOFT_NAVY,
+    borderWidth: 1,
   },
   minChipActive: {
     backgroundColor: PURPLE,
@@ -541,9 +645,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 5,
     borderRadius: 14,
+    backgroundColor: "white",
     borderWidth: 1,
     borderColor: SOFT_NAVY,
-    backgroundColor: "white",
   },
   starChipActive: {
     backgroundColor: PURPLE,
@@ -552,26 +656,19 @@ const styles = StyleSheet.create({
   starChipText: { fontSize: 12, color: NAVY },
   starChipTextActive: { color: "white", fontWeight: "700" },
 
-  // ACTION BUTTONS
   filterActions: {
     flexDirection: "row",
     justifyContent: "flex-end",
     gap: 12,
     marginTop: 6,
   },
-  filterClear: { paddingHorizontal: 8, paddingVertical: 8 },
-  filterClearText: { fontSize: 14, color: "#C00000", fontWeight: "700" },
-  filterCancel: { paddingHorizontal: 8, paddingVertical: 8 },
-  filterCancelText: { fontSize: 14, color: SOFT_NAVY },
+  filterClearText: { color: "#C00000", fontWeight: "700" },
+  filterCancelText: { color: SOFT_NAVY },
   filterApply: {
     paddingHorizontal: 14,
     paddingVertical: 8,
-    borderRadius: 16,
     backgroundColor: PURPLE,
+    borderRadius: 16,
   },
-  filterApplyText: {
-    fontSize: 14,
-    color: "white",
-    fontWeight: "700",
-  },
+  filterApplyText: { color: "white", fontWeight: "700" },
 });

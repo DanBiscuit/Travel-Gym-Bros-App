@@ -18,7 +18,6 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 
-// Colors
 const PURPLE = "#6E44FF";
 const NAVY = "#1D3D47";
 const SOFT_NAVY = "#445A65";
@@ -54,7 +53,13 @@ export default function GymChatRoom() {
 
   const scrollRef = useRef<ScrollView>(null);
 
-  // Timestamp formatting
+  // ⭐ NEW: Auto scroll helper (does not affect layout)
+  const scrollToBottom = () => {
+    setTimeout(() => {
+      scrollRef.current?.scrollToEnd({ animated: false });
+    }, 50);
+  };
+
   const formatTimestamp = (iso: string) => {
     const date = new Date(iso);
     const now = new Date();
@@ -77,7 +82,6 @@ export default function GymChatRoom() {
     );
   };
 
-  // Load user
   useEffect(() => {
     const loadUser = async () => {
       const { data: auth } = await supabase.auth.getUser();
@@ -86,7 +90,6 @@ export default function GymChatRoom() {
     loadUser();
   }, []);
 
-  // Load chat
   useEffect(() => {
     const loadChat = async () => {
       if (!gymId) return;
@@ -131,27 +134,24 @@ export default function GymChatRoom() {
       );
 
       setLoading(false);
+
+      // ⭐ NEW: Auto scroll on initial load
+      scrollToBottom();
     };
 
     loadChat();
   }, [gymId]);
 
-  // Realtime updates
   useEffect(() => {
     const channel = supabase
       .channel(`gym-chat-${gymId}`)
       .on(
         "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "gym_chat_messages",
-        },
+        { event: "*", schema: "public", table: "gym_chat_messages" },
         async (payload) => {
           if (payload.new?.gym_id !== gymId && payload.old?.gym_id !== gymId)
             return;
 
-          // INSERT
           if (payload.eventType === "INSERT") {
             const msg = payload.new;
 
@@ -161,17 +161,21 @@ export default function GymChatRoom() {
               .eq("id", msg.user_id)
               .maybeSingle();
 
-            setMessages((prev) => [
-              ...prev,
-              {
-                ...msg,
-                username: profile?.username ?? "User",
-                avatar_url: profile?.avatar_url ?? null,
-              },
-            ]);
+            setMessages((prev) => {
+              return [
+                ...prev,
+                {
+                  ...msg,
+                  username: profile?.username ?? "User",
+                  avatar_url: profile?.avatar_url ?? null,
+                },
+              ];
+            });
+
+            // ⭐ Auto scroll when new messages arrive
+            scrollToBottom();
           }
 
-          // UPDATE
           if (payload.eventType === "UPDATE") {
             setMessages((prev) =>
               prev.map((m) =>
@@ -182,24 +186,10 @@ export default function GymChatRoom() {
             );
           }
 
-          // DELETE — fully fixed
           if (payload.eventType === "DELETE") {
-            const id =
-              payload.old?.id ||
-              payload.old_record?.id ||
-              payload.new?.id ||
-              null;
-
+            const id = payload.old?.id;
             if (id) {
               setMessages((prev) => prev.filter((m) => m.id !== id));
-            } else {
-              const { data } = await supabase
-                .from("gym_chat_messages")
-                .select("*")
-                .eq("gym_id", gymId)
-                .order("created_at", { ascending: true });
-
-              setMessages(data ?? []);
             }
           }
         }
@@ -209,7 +199,6 @@ export default function GymChatRoom() {
     return () => supabase.removeChannel(channel);
   }, [gymId]);
 
-  // Send or edit message
   const sendMessage = async () => {
     if (!input.trim()) return;
 
@@ -320,7 +309,7 @@ export default function GymChatRoom() {
       >
         <ScrollView
           ref={scrollRef}
-          contentContainerStyle={{ paddingBottom: 160 }}
+          contentContainerStyle={{ paddingBottom: 70 }}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
@@ -454,7 +443,7 @@ const styles = StyleSheet.create({
 
   bottomFloating: {
     backgroundColor: "#fff",
-    paddingBottom: 10,
+    paddingBottom: 4,
     borderTopWidth: 1,
     borderColor: "#eee",
   },
@@ -553,30 +542,34 @@ const styles = StyleSheet.create({
 
   inputBar: {
     flexDirection: "row",
-    padding: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 12,
     gap: 10,
-    alignItems: "flex-end",
+    alignItems: "center",
     backgroundColor: "white",
   },
 
   input: {
     flex: 1,
     paddingHorizontal: 12,
-    paddingVertical: 9,
+    paddingVertical: 8,
     borderWidth: 1,
     borderRadius: 10,
     borderColor: "#ccc",
     backgroundColor: "#fff",
     color: NAVY,
-    maxHeight: 120,
+    maxHeight: 110,
   },
 
   sendButton: {
     backgroundColor: PURPLE,
     paddingHorizontal: 18,
+    height: 42,              // fixed height so it never shrinks
     justifyContent: "center",
+    alignItems: "center",
     borderRadius: 10,
   },
+
   sendText: { color: "white", fontWeight: "700" },
 
   menuOverlay: {

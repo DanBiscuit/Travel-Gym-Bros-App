@@ -101,25 +101,35 @@ export default function PublicProfileScreen() {
 
       setAllBadges(badgeData ?? []);
 
-      // ---- DETERMINE HIGHEST BADGE ----
-      const reviewCount = mapped.length;
-
-      const unlocked = (badgeData ?? []).filter((b) => {
-        const req = Number(b.requirement);
-        return reviewCount >= req;
-      });
-
-      // pick highest rank
-      const top =
-        unlocked.sort((a, b) => (b.rank ?? 0) - (a.rank ?? 0))[0] || null;
-
-      setHighestBadge(top);
-
       setLoading(false);
     };
 
     load();
   }, [profileId]);
+
+  // --------------------------------------------------------------------
+  // BADGE SELECTION (MATCHES PRIVATE PROFILE EXACTLY)
+  // --------------------------------------------------------------------
+  useEffect(() => {
+    if (!allBadges.length) return;
+
+    const reviewCount = reviews.length;
+
+    // Sort highest rank first
+    const sorted = [...allBadges].sort((a, b) => (b.rank ?? 0) - (a.rank ?? 0));
+
+    // Highest badge they qualify for
+    let unlocked = sorted.find(
+      (b) => reviewCount >= Number(b.requirement)
+    );
+
+    // Fallback = requirement 0 badge
+    if (!unlocked) {
+      unlocked = sorted.find((b) => Number(b.requirement) === 0) || null;
+    }
+
+    setHighestBadge(unlocked || null);
+  }, [reviews, allBadges]);
 
   // --------------------------------------------------------------------
 
@@ -170,13 +180,18 @@ export default function PublicProfileScreen() {
             {profile.username || "Unknown User"}
           </Text>
 
-          {/* ⭐ Public Highest Badge */}
+          {/* ⭐ HIGHEST BADGE (PUBLIC) */}
           {highestBadge && (
             <View style={{ alignItems: "center", marginTop: 8 }}>
               <Text style={styles.badgeIcon}>{highestBadge.icon}</Text>
               <Text style={styles.badgeLabel}>{highestBadge.title}</Text>
             </View>
           )}
+
+          {/* 🏋️‍♂️ Gyms visited */}
+          <Text style={{ marginTop: 6, fontSize: 14, opacity: 0.7 }}>
+            Gyms visited: {new Set(reviews.map((r) => r.gym_id)).size}
+          </Text>
         </View>
 
         {/* Training focus */}

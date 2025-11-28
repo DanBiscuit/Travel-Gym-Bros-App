@@ -16,8 +16,8 @@ import {
 import MapView, { Marker } from "react-native-maps";
 import { supabase } from "../../lib/supabase";
 
-const TGB_PURPLE = "#6A4C93"; // matte purple
-const TGB_NAVY = "#1D3D47";   // navy blue
+const TGB_PURPLE = "#6A4C93";
+const TGB_NAVY = "#1D3D47";
 const TGB_GREY = "#777";
 
 type Gym = {
@@ -75,6 +75,9 @@ export default function GymDetailScreen() {
 
   const [userHasVisited, setUserHasVisited] = useState(false);
 
+  // ⭐ Bookmark state
+  const [saved, setSaved] = useState(false);
+
   // Review form state
   const [newRating, setNewRating] = useState<number | null>(null);
   const [newBodybuildingRating, setNewBodybuildingRating] = useState<number | null>(null);
@@ -85,11 +88,29 @@ export default function GymDetailScreen() {
   const [newComment, setNewComment] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  // LOAD GYM + REVIEWS
+  // LOAD GYM, REVIEWS & BOOKMARK STATUS
   useEffect(() => {
     const loadData = async () => {
       if (!gymId) return;
 
+      // -------------------------
+      // LOAD BOOKMARK STATUS
+      // -------------------------
+      const { data: auth } = await supabase.auth.getUser();
+      if (auth?.user) {
+        const { data: bookmark } = await supabase
+          .from("gym_bookmarks")
+          .select("id")
+          .eq("gym_id", gymId)
+          .eq("user_id", auth.user.id)
+          .maybeSingle();
+
+        setSaved(!!bookmark);
+      }
+
+      // -------------------------
+      // LOAD GYM
+      // -------------------------
       const { data: gymData } = await supabase
         .from("gyms")
         .select("id,name,latitude,longitude,description")
@@ -98,6 +119,9 @@ export default function GymDetailScreen() {
 
       setGym(gymData as Gym);
 
+      // -------------------------
+      // LOAD REVIEWS
+      // -------------------------
       const { data: reviewData } = await supabase
         .from("reviews")
         .select(
@@ -134,7 +158,6 @@ export default function GymDetailScreen() {
 
       setReviews(formatted);
 
-      const { data: auth } = await supabase.auth.getUser();
       if (auth?.user) {
         const mine = formatted.find(r => r.user_id === auth.user.id);
         setUserHasVisited(!!mine);
@@ -145,6 +168,29 @@ export default function GymDetailScreen() {
 
     loadData();
   }, [gymId]);
+
+  // ⭐ Toggle bookmark
+  const toggleBookmark = async () => {
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth?.user) {
+      return Alert.alert("Login required", "You must log in to save gyms.");
+    }
+
+    if (saved) {
+      await supabase
+        .from("gym_bookmarks")
+        .delete()
+        .eq("gym_id", gymId)
+        .eq("user_id", auth.user.id);
+      setSaved(false);
+    } else {
+      await supabase.from("gym_bookmarks").insert({
+        gym_id: gymId,
+        user_id: auth.user.id,
+      });
+      setSaved(true);
+    }
+  };
 
   // SUBMIT REVIEW
   const handleSubmitReview = async () => {
@@ -205,7 +251,7 @@ export default function GymDetailScreen() {
     setNewComment("");
   };
 
-  // Averages
+  // COMPUTE AVERAGES
   const averageRating =
     reviews.length > 0
       ? reviews.reduce((sum, r) => sum + (r.rating ?? 0), 0) / reviews.length
@@ -280,9 +326,7 @@ export default function GymDetailScreen() {
       .eq("user_id", auth.user.id)
       .maybeSingle();
 
-    if (existing) {
-      return router.push(`/chat/${gymId}`);
-    }
+    if (existing) return router.push(`/chat/${gymId}`);
 
     const { error } = await supabase
       .from("chat_memberships")
@@ -291,16 +335,26 @@ export default function GymDetailScreen() {
         user_id: auth.user.id,
       });
 
-    if (error) {
-      return Alert.alert("Error", error.message);
-    }
+    if (error) return Alert.alert("Error", error.message);
 
     router.push(`/chat/${gymId}`);
   };
 
   return (
     <>
-      <Stack.Screen options={{ title: gym?.name ?? "Gym" }} />
+      {/* ⭐ Bookmark added to header */}
+      <Stack.Screen
+        options={{
+          title: gym?.name ?? "Gym",
+          headerRight: () => (
+            <Pressable onPress={toggleBookmark} style={{ marginRight: 15 }}>
+              <Text style={{ fontSize: 26 }}>
+                {saved ? "⭐" : "☆"}
+              </Text>
+            </Pressable>
+          ),
+        }}
+      />
 
       {loading ? (
         <View style={styles.center}><ActivityIndicator /></View>
@@ -353,7 +407,7 @@ export default function GymDetailScreen() {
 
           </View>
 
-          {/* ⭐ NEW — FULL-WIDTH LEADERBOARD BUTTON */}
+          {/* ⭐ FULL-WIDTH LEADERBOARD BUTTON */}
           <Pressable
             onPress={() =>
               router.push({
@@ -582,7 +636,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
 
-  // ⭐ NEW: FULL-WIDTH LEADERBOARD BUTTON
   leaderboardButton: {
     marginTop: 10,
     backgroundColor: TGB_PURPLE,

@@ -60,7 +60,7 @@ export default function ProfileScreen() {
   const [myReviewsLoading, setMyReviewsLoading] = useState(false);
   const [showAllMyReviews, setShowAllMyReviews] = useState(false);
 
-  // BADGES (no animation)
+  // BADGES
   const [allBadges, setAllBadges] = useState([]);
   const [isEditing, setIsEditing] = useState(false);
 
@@ -125,7 +125,7 @@ export default function ProfileScreen() {
   };
 
   // -----------------------------------------------------------------------
-  // LOAD AUTH STATE
+  // LOAD AUTH
   // -----------------------------------------------------------------------
   useEffect(() => {
     const load = async () => {
@@ -143,7 +143,7 @@ export default function ProfileScreen() {
   }, []);
 
   // -----------------------------------------------------------------------
-  // LOAD PROFILE DATA
+  // LOAD PROFILE
   // -----------------------------------------------------------------------
   useEffect(() => {
     if (!user) return;
@@ -247,7 +247,7 @@ export default function ProfileScreen() {
   }, [user]);
 
   // -----------------------------------------------------------------------
-  // LOAD BADGES (NO ANIMATION)
+  // LOAD BADGES
   // -----------------------------------------------------------------------
   useEffect(() => {
     if (!user) return;
@@ -264,7 +264,6 @@ export default function ProfileScreen() {
     load();
   }, [user]);
 
-  // Which badge is unlocked?
   const unlocked = allBadges.filter(
     (b) => myReviews.length >= Number(b.requirement)
   );
@@ -273,7 +272,6 @@ export default function ProfileScreen() {
     (a, b) => (b.rank ?? 0) - (a.rank ?? 0)
   )[0];
 
-  // Save newest badge once, but DO NOT animate
   useEffect(() => {
     const persist = async () => {
       if (!highest) return;
@@ -366,6 +364,7 @@ export default function ProfileScreen() {
   // -----------------------------------------------------------------------
   if (!isEditing) {
     const shown = showAllMyReviews ? myReviews : myReviews.slice(0, 3);
+    const gymsVisited = new Set(myReviews.map((r) => r.gym_id)).size;
 
     return (
       <View style={{ flex: 1 }}>
@@ -394,7 +393,6 @@ export default function ProfileScreen() {
               {username || "Your username"}
             </Text>
 
-            {/* HIGHEST BADGE (STATIC DISPLAY) */}
             {highest && (
               <Pressable
                 onPress={() => router.push(`/badges?id=${highest.id}`)}
@@ -404,6 +402,10 @@ export default function ProfileScreen() {
                 <Text style={styles.badgeLabel}>{highest.title}</Text>
               </Pressable>
             )}
+
+            <Text style={styles.gymsVisitedText}>
+              Gyms visited: {gymsVisited}
+            </Text>
           </View>
 
           {/* EMAIL */}
@@ -534,6 +536,14 @@ export default function ProfileScreen() {
           >
             <Text style={styles.buttonSecondaryText}>Sign out</Text>
           </Pressable>
+
+          {/* SUPPORT BUTTON */}
+          <Pressable
+            onPress={() => router.push("/support")}
+            style={[styles.buttonSecondary, { marginTop: 12 }]}
+          >
+            <Text style={styles.buttonSecondaryText}>Support</Text>
+          </Pressable>
         </ScrollView>
       </View>
     );
@@ -645,6 +655,7 @@ export default function ProfileScreen() {
           <Text style={styles.buttonSecondaryText}>Cancel</Text>
         </Pressable>
 
+        {/* ⭐ UPDATED SAVE BUTTON WITH UNIQUE USERNAME HANDLING ⭐ */}
         <Pressable
           onPress={async () => {
             const { error } = await supabase
@@ -659,7 +670,20 @@ export default function ProfileScreen() {
               })
               .eq("id", user.id);
 
-            if (!error) setIsEditing(false);
+            // Unique username check
+            if (error?.message?.includes("duplicate key value")) {
+              return Alert.alert(
+                "Username Taken",
+                "That username is already in use. Please choose another."
+              );
+            }
+
+            if (error) {
+              console.log(error);
+              return Alert.alert("Error", "Unable to save changes.");
+            }
+
+            setIsEditing(false);
           }}
           style={[styles.buttonPrimary, styles.buttonHalf]}
         >
@@ -768,7 +792,14 @@ const styles = StyleSheet.create({
   badgeIcon: { fontSize: 28 },
   badgeLabel: { fontSize: 11, marginTop: 2, opacity: 0.7 },
 
-  // REVIEWS
+  gymsVisitedText: {
+    marginTop: 6,
+    fontSize: 15,
+    fontWeight: "600",
+    color: NAVY,
+    opacity: 0.9,
+  },
+
   myReviewItem: {
     paddingTop: 8,
     borderTopWidth: 1,

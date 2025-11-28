@@ -1,3 +1,4 @@
+// app/(tabs)/chat.tsx
 import { useNavigation } from "@react-navigation/native";
 import { useRouter } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
@@ -22,6 +23,8 @@ type ChatPreview = {
   gym_name: string;
   last_message: string | null;
   last_time: string | null;
+  last_read_at: string | null;
+  unread: boolean;
 };
 
 export default function ChatListScreen() {
@@ -47,10 +50,10 @@ export default function ChatListScreen() {
       return;
     }
 
-    // Get all gym chats user is part of
+    // Get memberships WITH last_read_at
     const { data: memberships } = await supabase
       .from("chat_memberships")
-      .select("gym_id")
+      .select("gym_id, last_read_at")
       .eq("user_id", auth.user.id);
 
     if (!memberships || memberships.length === 0) {
@@ -67,9 +70,13 @@ export default function ChatListScreen() {
       .select("id, name")
       .in("id", gymIds);
 
+    // Prepare chat previews
     const previews: ChatPreview[] = [];
 
     for (const g of gyms ?? []) {
+      const membership = memberships.find((m) => m.gym_id === g.id);
+      const lastRead = membership?.last_read_at ?? null;
+
       const { data: messages } = await supabase
         .from("gym_chat_messages")
         .select("message, created_at")
@@ -77,13 +84,26 @@ export default function ChatListScreen() {
         .order("created_at", { ascending: false })
         .limit(1);
 
+      const lastMsg = messages?.[0];
+
+      // Unread logic: ONLY unread if last_read_at exists AND msg is newer
+      const unread =
+        lastMsg && lastRead
+          ? new Date(lastMsg.created_at) > new Date(lastRead)
+          : false;
+
       previews.push({
         gym_id: g.id,
         gym_name: g.name,
-        last_message: messages?.[0]?.message ?? "",
-        last_time: messages?.[0]?.created_at ?? null,
+        last_message: lastMsg?.message ?? "",
+        last_time: lastMsg?.created_at ?? null,
+        last_read_at: lastRead,
+        unread,
       });
     }
+
+    // Sort chats so unread appear on top
+    previews.sort((a, b) => Number(b.unread) - Number(a.unread));
 
     setChats(previews);
     setLoading(false);
@@ -110,7 +130,6 @@ export default function ChatListScreen() {
     );
   }
 
-  // Not logged in
   if (!authUser) {
     return (
       <SafeAreaView style={styles.center}>
@@ -122,7 +141,6 @@ export default function ChatListScreen() {
     );
   }
 
-  // Logged in but joined no chats
   if (chats.length === 0) {
     return (
       <SafeAreaView style={styles.center}>
@@ -139,6 +157,9 @@ export default function ChatListScreen() {
   // ------------------------------
   return (
     <SafeAreaView style={styles.safe}>
+      {/* Page Title */}
+      <Text style={styles.pageTitle}>Community Chats</Text>
+
       <FlatList
         contentContainerStyle={{ paddingTop: 10 }}
         data={chats}
@@ -162,6 +183,7 @@ export default function ChatListScreen() {
               )}
             </View>
 
+            {/* Time */}
             {item.last_time && (
               <Text style={styles.chatTime}>
                 {new Date(item.last_time).toLocaleTimeString([], {
@@ -170,6 +192,9 @@ export default function ChatListScreen() {
                 })}
               </Text>
             )}
+
+            {/* Unread dot */}
+            {item.unread && <View style={styles.unreadDot} />}
           </Pressable>
         )}
       />
@@ -183,6 +208,15 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
   },
 
+  pageTitle: {
+    fontSize: 28,
+    fontWeight: "900",
+    color: NAVY,
+    textAlign: "center",
+    marginTop: 15,
+    marginBottom: 10,
+  },
+
   center: {
     flex: 1,
     justifyContent: "center",
@@ -190,7 +224,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 25,
   },
 
-  // Empty-state styles
   emptyTitle: {
     fontSize: 22,
     fontWeight: "700",
@@ -241,5 +274,13 @@ const styles = StyleSheet.create({
     color: SOFT_NAVY,
     opacity: 0.6,
     marginLeft: 10,
+    marginRight: 8,
+  },
+
+  unreadDot: {
+    width: 12,
+    height: 12,
+    backgroundColor: "#FF3B30",
+    borderRadius: 6,
   },
 });
